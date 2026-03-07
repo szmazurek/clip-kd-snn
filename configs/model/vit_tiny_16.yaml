@@ -1,0 +1,8 @@
+# ViT-T/16: 5.6M params (visual), embed_dim=192 (timm default)
+# Primary student architecture in CLIP-KD paper experiments
+name: "timm-vit_tiny_patch16_224"
+pretrained: null
+
+# Teacher: ViT-B/16 (set teacher_checkpoint before training)
+teacher_name: "ViT-B-16"
+teacher_checkpoint: ???

@@ -1,0 +1,174 @@
+"""CLIPDataModule: PyTorch Lightning DataModule for CLIP training/evaluation.
+
+Wraps CC3M, CC12M, ImageNet, MS-COCO, and Flickr30K datasets and exposes
+them as train/val DataLoaders through Lightning's DataModule interface.
+"""
+from __future__ import annotations
+
+from typing import Callable, Optional
+
+import lightning as L
+import torch
+from omegaconf import DictConfig
+from torch.utils.data import DataLoader, IterableDataset
+
+from .cc3m import CC3MDataset
+from .cc12m import CC12MDataset
+from .cc3m_wds import build_cc3m_wds
+from .combined import build_combined_dataset
+from .flickr30k import Flickr30KDataset
+from .imagenet import ImageNetDataset
+from .mscoco import MSCOCODataset
+
+
+class CLIPDataModule(L.LightningDataModule):
+    """Data module for CLIP training and evaluation.
+
+    Supports the following training dataset types:
+        "cc3m"     — CC3M only (CSV + local image files)
+        "cc12m"    — CC12M only (CSV + local image files)
+        "combined" — CC3M + CC12M concatenated (CSV + local image files)
+        "cc3m_wds" — CC3M WebDataset shards (pixparse/cc3m-wds HuggingFace format)
+
+    Evaluation dataloaders are added for whichever paths are set in config.
+
+    Args:
+        cfg: Full Hydra config (reads cfg.dataset and cfg.training).
+        preprocess_train: Training image transforms from open_clip.
+        preprocess_val: Evaluation image transforms from open_clip.
+        tokenizer: Text tokenizer callable.
+    """
+
+    def __init__(
+        self,
+        cfg: DictConfig,
+        preprocess_train: Callable,
+        preprocess_val: Callable,
+        tokenizer: Callable,
+    ) -> None:
+        super().__init__()
+        self.cfg = cfg
+        self.preprocess_train = preprocess_train
+        self.preprocess_val = preprocess_val
+        self.tokenizer = tokenizer
+
+        self.train_dataset = None
+        self.val_datasets: dict = {}
+
+    def setup(self, stage: Optional[str] = None) -> None:
+        ds_cfg = self.cfg.dataset
+
+        # ---- Training dataset ----
+        dtype = ds_cfg.get("type", "cc3m")
+        if dtype == "cc3m":
+            self.train_dataset = CC3MDataset(
+                data_root=ds_cfg.train_root,
+                csv_path=ds_cfg.train_csv,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+                img_key=ds_cfg.get("img_key", "filepath"),
+                caption_key=ds_cfg.get("caption_key", "title"),
+                sep=ds_cfg.get("sep", "\t"),
+            )
+        elif dtype == "cc12m":
+            self.train_dataset = CC12MDataset(
+                data_root=ds_cfg.train_root,
+                csv_path=ds_cfg.train_csv,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+                img_key=ds_cfg.get("img_key", "filepath"),
+                caption_key=ds_cfg.get("caption_key", "title"),
+                sep=ds_cfg.get("sep", "\t"),
+            )
+        elif dtype == "combined":
+            self.train_dataset = build_combined_dataset(
+                cc3m_root=ds_cfg.cc3m_root,
+                cc3m_csv=ds_cfg.cc3m_csv,
+                cc12m_root=ds_cfg.cc12m_root,
+                cc12m_csv=ds_cfg.cc12m_csv,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+            )
+        elif dtype == "cc3m_wds":
+            # WebDataset shards (pixparse/cc3m-wds format).
+            # shard_pattern: brace-expansion pattern or list of shard paths/URLs.
+            # e.g. "/data/cc3m-wds/cc3m-train-{0000..0575}.tar"
+            self.train_dataset = build_cc3m_wds(
+                shard_pattern=ds_cfg.shard_pattern,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+                num_samples=ds_cfg.get("num_samples", 2_905_954),
+                resampled=ds_cfg.get("resampled", False),
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+            )
+        else:
+            raise ValueError(f"Unknown dataset type '{dtype}'.")
+
+        # ---- Evaluation datasets ----
+        if ds_cfg.get("imagenet_val_root"):
+            self.val_datasets["imagenet"] = ImageNetDataset(
+                root=ds_cfg.imagenet_val_root,
+                transform=self.preprocess_val,
+                variant="imagenet",
+            )
+        if ds_cfg.get("imagenet_v2_root"):
+            self.val_datasets["imagenet_v2"] = ImageNetDataset(
+                root=ds_cfg.imagenet_v2_root,
+                transform=self.preprocess_val,
+                variant="imagenet_v2",
+            )
+        if ds_cfg.get("imagenet_r_root"):
+            self.val_datasets["imagenet_r"] = ImageNetDataset(
+                root=ds_cfg.imagenet_r_root,
+                transform=self.preprocess_val,
+                variant="imagenet_r",
+            )
+        if ds_cfg.get("imagenet_sketch_root"):
+            self.val_datasets["imagenet_sketch"] = ImageNetDataset(
+                root=ds_cfg.imagenet_sketch_root,
+                transform=self.preprocess_val,
+                variant="imagenet_sketch",
+            )
+        if ds_cfg.get("mscoco_root"):
+            self.val_datasets["mscoco"] = MSCOCODataset(
+                data_path=ds_cfg.mscoco_root,
+                transform=self.preprocess_val,
+                tokenizer=self.tokenizer,
+            )
+        if ds_cfg.get("flickr30k_root"):
+            self.val_datasets["flickr30k"] = Flickr30KDataset(
+                data_path=ds_cfg.flickr30k_root,
+                transform=self.preprocess_val,
+                tokenizer=self.tokenizer,
+            )
+
+    def train_dataloader(self) -> DataLoader:
+        # For IterableDataset (e.g. WebDataset): DDP sharding is handled
+        # internally via split_by_node/split_by_worker — omit shuffle.
+        # For map-style datasets: Lightning automatically wraps with
+        # DistributedSampler under DDP (use_distributed_sampler=True by default),
+        # so shuffle=True is correct here and Lightning will replace it as needed.
+        is_iterable = isinstance(self.train_dataset, IterableDataset)
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.cfg.training.batch_size,
+            shuffle=(not is_iterable),
+            num_workers=self.cfg.training.get("workers", 8),
+            pin_memory=True,
+            drop_last=True,
+        )
+
+    def val_dataloader(self) -> list[DataLoader]:
+        loaders = []
+        for dataset in self.val_datasets.values():
+            loaders.append(
+                DataLoader(
+                    dataset,
+                    batch_size=self.cfg.training.get("eval_batch_size", 256),
+                    shuffle=False,
+                    num_workers=self.cfg.training.get("workers", 8),
+                    pin_memory=True,
+                )
+            )
+        return loaders

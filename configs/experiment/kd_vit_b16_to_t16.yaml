@@ -1,0 +1,22 @@
+# @package _global_
+# ViT-B/16 → ViT-T/16 knowledge distillation on CC3M
+# Unified loss: FD + CKD + ICL + CrossKD
+defaults:
+  - override /model: vit_tiny_16
+  - override /loss: unified
+  - override /dataset: cc3m
+
+model:
+  teacher_checkpoint: /data/checkpoints/ViT-B-16-laion400m_e31-d9920b53.pt
+
+dataset:
+  train_root: /data/cc3m/images
+  train_csv: /data/cc3m/train.tsv
+  # Optional: uncomment to enable eval
+  # imagenet_val_root: /data/imagenet/val
+  # mscoco_root: /data/mscoco
+
+training:
+  epochs: 32
+  batch_size: 256
+  warmup_steps: 10000

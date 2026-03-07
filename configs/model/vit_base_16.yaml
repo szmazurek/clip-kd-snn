@@ -1,0 +1,8 @@
+# ViT-B/16: 86.2M params (visual) + 37.8M (text), embed_dim=512
+# Used as teacher in the primary CLIP-KD experiments
+name: "ViT-B-16"
+pretrained: null
+
+# Teacher fields (populated in experiment configs or via CLI override)
+teacher_name: null
+teacher_checkpoint: null

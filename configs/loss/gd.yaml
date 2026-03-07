@@ -1,0 +1,13 @@
+# Gradient Distillation only (Equation 13, Appendix A)
+# Paper: alpha_gd = 10^8. Very large because gradients are very small values.
+alpha_task: 1.0
+alpha_ckd: 0.0
+alpha_icl: 0.0
+alpha_cross_kd: 0.0
+alpha_fd: 0.0
+alpha_mfd: 0.0
+alpha_gd: 1.0e8
+alpha_afd: 0.0
+
+gather_with_grad: false
+local_loss: false

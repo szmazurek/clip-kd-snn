@@ -1,0 +1,13 @@
+# Contrastive Representation Distillation / CKD (Equation 4-10)
+# Paper: "CRD" in text, "ckd" in code. Alpha=1 from Section 4.1.
+alpha_task: 1.0
+alpha_ckd: 1.0
+alpha_icl: 0.0
+alpha_cross_kd: 0.0
+alpha_fd: 0.0
+alpha_mfd: 0.0
+alpha_gd: 0.0
+alpha_afd: 0.0
+
+gather_with_grad: false
+local_loss: false

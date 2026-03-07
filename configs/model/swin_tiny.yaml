@@ -1,0 +1,6 @@
+# Swin-T: 27.9M params
+name: "timm-swin_tiny_patch4_window7_224"
+pretrained: null
+
+teacher_name: "ViT-B-16"
+teacher_checkpoint: ???

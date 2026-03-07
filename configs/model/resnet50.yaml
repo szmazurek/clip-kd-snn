@@ -1,0 +1,6 @@
+# ResNet-50: 38.3M params, embed_dim=1024
+name: "RN50"
+pretrained: null
+
+teacher_name: "RN101"
+teacher_checkpoint: ???

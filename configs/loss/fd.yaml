@@ -1,0 +1,14 @@
+# Feature Distillation only (Equation 11)
+# Paper uses alpha_fd = 2000 for raw MSE on embeddings.
+# Start with 1.0 and tune — 2000 is appropriate when features are small-valued.
+alpha_task: 1.0
+alpha_ckd: 0.0
+alpha_icl: 0.0
+alpha_cross_kd: 0.0
+alpha_fd: 1.0
+alpha_mfd: 0.0
+alpha_gd: 0.0
+alpha_afd: 0.0
+
+gather_with_grad: false
+local_loss: false

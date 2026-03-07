@@ -1,0 +1,6 @@
+# ResNet-18 (timm): 11.4M params
+name: "timm_resnet18"
+pretrained: null
+
+teacher_name: "RN101"
+teacher_checkpoint: ???

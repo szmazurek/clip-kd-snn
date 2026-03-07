@@ -1,0 +1,6 @@
+# ViT-L/14: 304M params, embed_dim=768. Used as teacher with LAION-400M weights.
+name: "ViT-L-14"
+pretrained: null
+
+teacher_name: null
+teacher_checkpoint: null

@@ -1,0 +1,6 @@
+# MobileViT-S: 5.3M params, embed_dim=512
+name: "timm-mobilevit_s"
+pretrained: null
+
+teacher_name: "ViT-B-16"
+teacher_checkpoint: ???

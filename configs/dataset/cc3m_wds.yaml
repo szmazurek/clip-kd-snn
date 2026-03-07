@@ -1,0 +1,34 @@
+# CC3M WebDataset config — pixparse/cc3m-wds HuggingFace format
+# https://huggingface.co/datasets/pixparse/cc3m-wds
+#
+# Download shards first:
+#   huggingface-cli download pixparse/cc3m-wds --repo-type dataset --local-dir /data/cc3m-wds
+#
+# Then set shard_pattern to the local path below.
+
+type: "cc3m_wds"
+
+# Brace-expansion shard pattern understood by webdataset.
+# Adjust the path to wherever you downloaded the shards.
+shard_pattern: "/data/cc3m-wds/cc3m-train-{0000..0575}.tar"
+
+# Total training samples. Used to set the epoch length for Lightning.
+# pixparse/cc3m-wds train split: 2,905,954 samples across 576 shards.
+num_samples: 2905954
+
+# In-pipeline shuffle buffer (number of samples held in memory for shuffling).
+# Larger buffers improve randomness but use more RAM. 1000 is a safe default.
+shuffle_buffer: 1000
+
+# If true, shards are sampled with replacement (ResampledShards).
+# Set to true for multi-GPU DDP if you want each node to see all shards
+# rather than a deterministic disjoint split.
+resampled: false
+
+seed: 42
+
+# Optional evaluation datasets — set paths to enable:
+# imagenet_val_root: /data/imagenet/val
+# imagenet_v2_root:  /data/imagenet-v2
+# mscoco_root:       /data/mscoco
+# flickr30k_root:    /data/flickr30k

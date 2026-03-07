@@ -1,0 +1,13 @@
+defaults:
+  - model: vit_tiny_16
+  - dataset: cc3m
+  - loss: clip_only
+  - training: default
+  - _self_
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: outputs/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
