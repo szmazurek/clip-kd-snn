@@ -35,7 +35,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.datasets.factory import CLIPDataModule
 from src.datasets.tokenizer import get_tokenizer
-from src.lightning.callbacks import LogitScaleMonitor, ZeroShotEvalCallback
+from src.lightning.callbacks import LogitScaleMonitor
 from src.lightning.clip_kd_module import CLIPKDModule
 from src.lightning.clip_module import CLIPModule
 from src.models.factory import build_student_model
@@ -73,20 +73,26 @@ def main(cfg: DictConfig) -> None:
     callbacks = [
         LogitScaleMonitor(),
         LearningRateMonitor(logging_interval="step"),
+        # Best-model checkpoint: tracks val/imagenet/top1, keeps top-3 + last
         ModelCheckpoint(
             dirpath="checkpoints/",
-            filename="epoch={epoch:03d}-top1={val/imagenet/top1:.4f}",
+            filename="best-epoch={epoch:03d}-top1={val/imagenet/top1:.4f}",
             monitor="val/imagenet/top1",
             mode="max",
             save_top_k=3,
-            save_last=True,
+            save_last=True,          # always writes checkpoints/last.ckpt
+            auto_insert_metric_name=False,
+        ),
+        # Periodic checkpoint: saves every N epochs unconditionally
+        ModelCheckpoint(
+            dirpath="checkpoints/",
+            filename="periodic-epoch={epoch:03d}",
+            every_n_epochs=cfg.training.get("save_every_n_epochs", 5),
+            save_top_k=-1,           # keep all periodic checkpoints
+            save_last=False,
             auto_insert_metric_name=False,
         ),
     ]
-    if cfg.training.get("zeroshot_frequency", 0) > 0:
-        callbacks.append(
-            ZeroShotEvalCallback(frequency=cfg.training.zeroshot_frequency)
-        )
 
     # Logger
     logger = CSVLogger(save_dir="logs/", name="clip_kd")
@@ -100,6 +106,10 @@ def main(cfg: DictConfig) -> None:
         devices="auto",
         accelerator="auto",
         strategy="auto",
+        # Run validation every N epochs (reuses zeroshot_frequency config key)
+        check_val_every_n_epoch=cfg.training.get("zeroshot_frequency", 1),
+        # Skip sanity-check val pass — there is no val split, only eval datasets
+        num_sanity_val_steps=0,
     )
     if cfg.training.get("grad_clip_norm"):
         trainer_kwargs["gradient_clip_val"] = cfg.training.grad_clip_norm

@@ -1,0 +1,27 @@
+# Combined CC3M + CC12M WebDataset config (~15.3M samples total).
+# Shards from both datasets are shuffled together per epoch.
+
+type: "combined_wds"
+
+# Brace-expansion shard patterns for each dataset.
+cc3m_shard_pattern: "/data/cc3m-wds/cc3m-train-{0000..0575}.tar"
+cc12m_shard_pattern: "/data/cc12m-wds/cc12m-train-{0000..1101}.tar"
+
+# Total training samples (CC3M 2,905,954 + CC12M 10,968,539 per HF docs).
+num_samples: 13874493
+
+# In-pipeline shuffle buffer (number of samples held in memory for shuffling).
+shuffle_buffer: 5000
+
+# If true, shards are sampled with replacement (ResampledShards).
+resampled: false
+
+seed: 42
+
+# Optional evaluation datasets — set paths to enable:
+imagenet_val_root: null
+imagenet_v2_root: null
+imagenet_r_root: null
+imagenet_sketch_root: null
+mscoco_root: null
+flickr30k_root: null

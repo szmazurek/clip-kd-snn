@@ -1,0 +1,29 @@
+# CC12M WebDataset config — pixparse/cc12m-wds HuggingFace format
+# https://huggingface.co/datasets/pixparse/cc12m-wds
+#
+# Set shard_pattern to the local path where you downloaded the shards.
+
+type: "cc12m_wds"
+
+# Brace-expansion shard pattern understood by webdataset.
+shard_pattern: "/data/cc12m-wds/cc12m-train-{0000..1101}.tar"
+
+# Total training samples. Used to set the epoch length for Lightning.
+# pixparse/cc12m-wds HF docs: 10,968,539 train samples.
+num_samples: 10968539
+
+# In-pipeline shuffle buffer (number of samples held in memory for shuffling).
+shuffle_buffer: 5000
+
+# If true, shards are sampled with replacement (ResampledShards).
+resampled: false
+
+seed: 42
+
+# Optional evaluation datasets — set paths to enable:
+imagenet_val_root: null
+imagenet_v2_root: null
+imagenet_r_root: null
+imagenet_sketch_root: null
+mscoco_root: null
+flickr30k_root: null

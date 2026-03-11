@@ -12,10 +12,30 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, IterableDataset
 
+import torch.distributed as _dist
+
+
+def _wds_num_samples(total: int) -> int:
+    """Return per-rank sample count for a WebDataset epoch.
+
+    wds.split_by_node distributes shards by global rank, so each GPU sees
+    roughly total/world_size samples per epoch. Passing this value to
+    with_epoch() and __len__() keeps Lightning's progress bar and LR
+    scheduler step counts correct under any number of GPUs.
+    """
+    try:
+        world_size = _dist.get_world_size() if _dist.is_initialized() else 1
+    except Exception:
+        world_size = 1
+    return max(1, total // world_size)
+
+
 from .cc3m import CC3MDataset
 from .cc12m import CC12MDataset
 from .cc3m_wds import build_cc3m_wds
+from .cc12m_wds import build_cc12m_wds
 from .combined import build_combined_dataset
+from .combined_wds import build_combined_wds
 from .flickr30k import Flickr30KDataset
 from .imagenet import ImageNetDataset
 from .mscoco import MSCOCODataset
@@ -97,7 +117,28 @@ class CLIPDataModule(L.LightningDataModule):
                 shard_pattern=ds_cfg.shard_pattern,
                 transforms=self.preprocess_train,
                 tokenizer=self.tokenizer,
-                num_samples=ds_cfg.get("num_samples", 2_905_954),
+                num_samples=_wds_num_samples(ds_cfg.get("num_samples", 2_905_954)),
+                resampled=ds_cfg.get("resampled", False),
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+            )
+        elif dtype == "cc12m_wds":
+            self.train_dataset = build_cc12m_wds(
+                shard_pattern=ds_cfg.shard_pattern,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+                num_samples=_wds_num_samples(ds_cfg.get("num_samples", 10_968_539)),
+                resampled=ds_cfg.get("resampled", False),
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+            )
+        elif dtype == "combined_wds":
+            self.train_dataset = build_combined_wds(
+                cc3m_pattern=ds_cfg.cc3m_shard_pattern,
+                cc12m_pattern=ds_cfg.cc12m_shard_pattern,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+                num_samples=_wds_num_samples(ds_cfg.get("num_samples", 13_874_493)),
                 resampled=ds_cfg.get("resampled", False),
                 shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
                 seed=ds_cfg.get("seed", 42),
@@ -155,6 +196,8 @@ class CLIPDataModule(L.LightningDataModule):
             batch_size=self.cfg.training.batch_size,
             shuffle=(not is_iterable),
             num_workers=self.cfg.training.get("workers", 8),
+            prefetch_factor=self.cfg.training.get("prefetch_factor", 2),
+            persistent_workers=True,
             pin_memory=True,
             drop_last=True,
         )

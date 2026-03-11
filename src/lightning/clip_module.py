@@ -16,9 +16,10 @@ from ..losses.clip_loss import CLIPInfoNCELoss
 from ..models.factory import build_student_model
 from ..utils.distributed import gather_features
 from ..utils.misc import cosine_lr_lambda, exclude_weight_decay
+from .eval_mixin import ZeroShotEvalMixin
 
 
-class CLIPModule(L.LightningModule):
+class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
     """PyTorch Lightning module for standard CLIP training.
 
     Trains a CLIP model from scratch using the InfoNCE contrastive loss.

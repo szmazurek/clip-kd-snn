@@ -5,6 +5,7 @@ Images are assumed to be pre-downloaded locally.
 
 Ported from src/training/data.py CsvDataset (lines 34-56).
 """
+
 from __future__ import annotations
 
 import logging

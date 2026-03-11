@@ -15,13 +15,73 @@ from __future__ import annotations
 
 from typing import Callable, Union
 
+import sys
+import warnings
+
+import torch.utils.data as tud
 import webdataset as wds
+
+# Promote PIL's "Truncated File Read" UserWarning to an exception so that
+# _decode_warn_and_continue can catch it (with shard URL + sample key context)
+# and skip the corrupt sample rather than passing partial image data downstream.
+warnings.filterwarnings("error", message="Truncated File Read", category=UserWarning)
+warnings.filterwarnings("error", message="Corrupt EXIF data",   category=UserWarning)
+
+
+def _shard_warn_and_continue(exn: Exception) -> bool:
+    """Shard-level error handler: log the missing/corrupt shard path and skip it.
+
+    str(FileNotFoundError) includes the filename, e.g.:
+      [Errno 2] No such file or directory: '/path/to/shard.tar'
+    """
+    print(
+        f"[wds] Skipping missing/corrupt shard: {type(exn).__name__}: {exn}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return True
+
+
+def _decode_warn_and_continue(exn: Exception) -> bool:
+    """WebDataset decode-stage error handler: log corrupt sample and skip it.
+
+    Uses print(stderr, flush=True) rather than logging so the message is
+    guaranteed to appear in SLURM err logs regardless of how Lightning
+    configures the root Python logger.
+    """
+    url = getattr(exn, "url", "?")
+    key = getattr(exn, "key", "?")
+    cause = exn.__cause__ if exn.__cause__ is not None else exn
+    print(
+        f"[wds] Skipping corrupt sample [{url} / {key}]: {type(cause).__name__}: {cause}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return True
 
 # CC3M shard counts / sample counts (pixparse/cc3m-wds)
 CC3M_TRAIN_SHARDS = 576
 CC3M_TRAIN_SAMPLES = 2_905_954
 CC3M_VAL_SHARDS = 16
 CC3M_VAL_SAMPLES = 13_443
+
+
+class SizedWebDataset(tud.IterableDataset):
+    """IterableDataset wrapper that exposes __len__ for Lightning compatibility.
+
+    WebDataset pipelines do not implement __len__, so Lightning cannot compute
+    estimated_stepping_batches and the progress bar shows '?'. The pipeline
+    already stores nsamples from .with_epoch(), so we read it directly.
+    """
+
+    def __init__(self, dataset: wds.WebDataset) -> None:
+        self._dataset = dataset
+
+    def __iter__(self):
+        return iter(self._dataset)
+
+    def __len__(self) -> int:
+        return self._dataset.nsamples  # set by .with_epoch(num_samples)
 
 
 def build_cc3m_wds(
@@ -32,7 +92,7 @@ def build_cc3m_wds(
     resampled: bool = False,
     shuffle_buffer: int = 1000,
     seed: int = 42,
-) -> wds.WebDataset:
+) -> SizedWebDataset:
     """Build a WebDataset pipeline compatible with the pixparse/cc3m-wds format.
 
     Args:
@@ -61,13 +121,15 @@ def build_cc3m_wds(
         wds.WebDataset(
             shard_pattern,
             resampled=resampled,
+            shardshuffle=True,
             nodesplitter=wds.split_by_node,
             seed=seed,
+            handler=_shard_warn_and_continue,
         )
         .shuffle(shuffle_buffer)
-        .decode("pil")                                   # jpg → PIL.Image
+        .decode("pil", handler=_decode_warn_and_continue)
         .to_tuple("jpg", "txt")
         .map_tuple(transforms, lambda t: tokenizer([t])[0])
         .with_epoch(num_samples)
     )
-    return dataset
+    return SizedWebDataset(dataset)

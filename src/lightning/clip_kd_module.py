@@ -28,9 +28,10 @@ from ..losses.factory import build_loss
 from ..models.factory import build_student_model, build_teacher_model, get_embed_dim
 from ..utils.distributed import gather_features
 from ..utils.misc import cosine_lr_lambda, exclude_weight_decay
+from .eval_mixin import ZeroShotEvalMixin
 
 
-class CLIPKDModule(L.LightningModule):
+class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
     """CLIP knowledge distillation Lightning module.
 
     Args:

@@ -7,14 +7,17 @@ weight_decay: 0.1
 warmup_steps: 10000
 epochs: 32
 # Per-GPU batch size; total = batch_size * num_gpus (paper uses 1024 total on 8 GPUs)
-batch_size: 256
+batch_size: 512
 eval_batch_size: 256
-workers: 8
+workers: 12
+prefetch_factor: 8
 # PyTorch Lightning precision string
 precision: "bf16-mixed"
 # mask_ratio > 0 activates MFD (Masked Feature Distillation)
 mask_ratio: 0.0
 grad_clip_norm: null
 seed: 42
-# Run zero-shot eval every N epochs
+# Run zero-shot eval every N epochs (also controls check_val_every_n_epoch in Trainer)
 zeroshot_frequency: 2
+# Save a periodic checkpoint every N epochs (in addition to best-model checkpoints)
+save_every_n_epochs: 5

@@ -18,7 +18,7 @@ num_samples: 2905954
 
 # In-pipeline shuffle buffer (number of samples held in memory for shuffling).
 # Larger buffers improve randomness but use more RAM. 1000 is a safe default.
-shuffle_buffer: 1000
+shuffle_buffer: 5000
 
 # If true, shards are sampled with replacement (ResampledShards).
 # Set to true for multi-GPU DDP if you want each node to see all shards
