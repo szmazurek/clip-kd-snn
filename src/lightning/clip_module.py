@@ -1,4 +1,5 @@
 """Lightning module for baseline CLIP training (no knowledge distillation)."""
+
 from __future__ import annotations
 
 import math
@@ -34,7 +35,9 @@ class CLIPModule(L.LightningModule):
         self.cfg = cfg
         self.tokenizer = tokenizer
 
-        self.student, self.preprocess_train, self.preprocess_val = build_student_model(cfg)
+        self.student, self.preprocess_train, self.preprocess_val = build_student_model(
+            cfg
+        )
         self.loss_fn = CLIPInfoNCELoss()
 
     # ------------------------------------------------------------------
@@ -71,6 +74,7 @@ class CLIPModule(L.LightningModule):
 
         # Build minimal KDFeatures-like container for the loss
         from ..losses.base import KDFeatures
+
         features = KDFeatures(
             s_img=all_img,
             s_txt=all_txt,
@@ -83,7 +87,14 @@ class CLIPModule(L.LightningModule):
             labels=labels,
         )
         loss = self.loss_fn(features)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, sync_dist=True)
+        self.log(
+            "train/loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+            prog_bar=True,
+        )
         return loss
 
     def on_after_backward(self) -> None:

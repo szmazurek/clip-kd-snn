@@ -17,6 +17,7 @@ Usage:
     # Override individual loss weights
     python scripts/train.py +loss.alpha_gd=1e8 experiment=kd_vit_b16_to_t16
 """
+
 from __future__ import annotations
 
 import sys
@@ -96,14 +97,15 @@ def main(cfg: DictConfig) -> None:
         precision=cfg.training.precision,
         callbacks=callbacks,
         logger=logger,
-        log_every_n_steps=10,
-        enable_progress_bar=True,
+        devices="auto",
+        accelerator="auto",
+        strategy="auto",
     )
     if cfg.training.get("grad_clip_norm"):
         trainer_kwargs["gradient_clip_val"] = cfg.training.grad_clip_norm
 
     # Allow trainer overrides from CLI: python train.py trainer.devices=4
-    trainer_cfg = cfg.get("trainer", {})
+    trainer_cfg = cfg.get("trainer", OmegaConf.create({}))
     trainer_kwargs.update(OmegaConf.to_container(trainer_cfg, resolve=True))
 
     trainer = L.Trainer(**trainer_kwargs)

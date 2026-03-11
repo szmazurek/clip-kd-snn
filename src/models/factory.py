@@ -5,6 +5,8 @@ lifting (architecture definitions, weight loading) is handled by open_clip.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Callable
 
 import open_clip
@@ -13,6 +15,11 @@ from omegaconf import DictConfig
 from torch import nn
 
 from .clip_model import CLIPWrapper
+
+# Register custom model configs (e.g. timm-based models not in open_clip built-ins)
+_MODEL_CONFIGS_DIR = Path(__file__).parent.parent.parent / "model_configs"
+if _MODEL_CONFIGS_DIR.is_dir():
+    open_clip.add_model_config(_MODEL_CONFIGS_DIR)
 
 
 def build_student_model(

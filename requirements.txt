@@ -1,6 +1,6 @@
 # Core
-torch>=2.0
-torchvision>=0.15
+# torch>=2.0
+# torchvision>=0.15
 
 # CLIP model, tokenizer, and pretrained weights
 open-clip-torch>=2.20
