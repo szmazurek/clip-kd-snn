@@ -19,6 +19,9 @@ resampled: false
 seed: 42
 
 # Optional evaluation datasets — set paths to enable:
+# Use imagenet_hf_cache_dir for HF parquet-cached ImageNet (preferred on this cluster).
+# Use imagenet_val_root for a local ImageFolder-style directory.
+imagenet_hf_cache_dir: null
 imagenet_val_root: null
 imagenet_v2_root: null
 imagenet_r_root: null

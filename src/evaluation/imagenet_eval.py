@@ -29,7 +29,7 @@ def _accuracy(output: torch.Tensor, target: torch.Tensor, topk=(1,)) -> list[flo
     pred = output.topk(max(topk), dim=1, largest=True, sorted=True)[1].t()
     correct = pred.eq(target.view(1, -1).expand_as(pred))
     return [
-        float(correct[:k].reshape(-1).float().sum(0, keepdim=True).cpu().numpy())
+        correct[:k].reshape(-1).float().sum(0).item()
         for k in topk
     ]
 

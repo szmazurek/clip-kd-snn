@@ -5,3 +5,4 @@ outputs/
 logs/
 test.sh
 test_combined.sh
+test_hfd*.sh

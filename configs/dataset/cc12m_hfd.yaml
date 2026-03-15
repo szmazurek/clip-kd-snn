@@ -1,0 +1,20 @@
+# CC12M HuggingFace Datasets config (Arrow-cached, Lustre-safe).
+#
+# Requires one-time conversion before first training run:
+#   python scripts/convert_wds_to_hf.py \
+#       --dataset cc12m \
+#       --hub-cache $SCRATCH/.cache/hub \
+#       --output-dir $SCRATCH/cc12m-hf \
+#       --num-shards 512
+#
+# After conversion, training uses load_from_disk() which mmap's Arrow files.
+# See cc3m_hfd.yaml for full rationale.
+
+type: "cc12m_hfd"
+
+# Directory written by convert_wds_to_hf.py (contains Arrow shards + dataset_info.json).
+# Override per-job: dataset.arrow_dir=/path/to/cc12m-hf
+arrow_dir: "/net/scratch/hscra/plgrid/plgmazurekagh/cc12m-hf"
+
+# Total training samples — used for logging / LR scheduler verification.
+num_samples: 10968539

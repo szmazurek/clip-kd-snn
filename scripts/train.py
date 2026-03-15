@@ -80,7 +80,7 @@ def main(cfg: DictConfig) -> None:
             monitor="val/imagenet/top1",
             mode="max",
             save_top_k=3,
-            save_last=True,          # always writes checkpoints/last.ckpt
+            save_last=True,  # always writes checkpoints/last.ckpt
             auto_insert_metric_name=False,
         ),
         # Periodic checkpoint: saves every N epochs unconditionally
@@ -88,7 +88,7 @@ def main(cfg: DictConfig) -> None:
             dirpath="checkpoints/",
             filename="periodic-epoch={epoch:03d}",
             every_n_epochs=cfg.training.get("save_every_n_epochs", 5),
-            save_top_k=-1,           # keep all periodic checkpoints
+            save_top_k=-1,  # keep all periodic checkpoints
             save_last=False,
             auto_insert_metric_name=False,
         ),
@@ -108,8 +108,8 @@ def main(cfg: DictConfig) -> None:
         strategy="auto",
         # Run validation every N epochs (reuses zeroshot_frequency config key)
         check_val_every_n_epoch=cfg.training.get("zeroshot_frequency", 1),
-        # Skip sanity-check val pass — there is no val split, only eval datasets
         num_sanity_val_steps=0,
+        fast_dev_run=True,
     )
     if cfg.training.get("grad_clip_norm"):
         trainer_kwargs["gradient_clip_val"] = cfg.training.grad_clip_norm

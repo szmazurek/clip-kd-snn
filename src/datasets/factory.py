@@ -36,8 +36,12 @@ from .cc3m_wds import build_cc3m_wds
 from .cc12m_wds import build_cc12m_wds
 from .combined import build_combined_dataset
 from .combined_wds import build_combined_wds
+from .cc3m_hfd import build_cc3m_hfd
+from .cc12m_hfd import build_cc12m_hfd
+from .combined_hfd import build_combined_hfd
 from .flickr30k import Flickr30KDataset
 from .imagenet import ImageNetDataset
+from .imagenet_hfd import ImageNetHFDataset
 from .mscoco import MSCOCODataset
 
 
@@ -143,6 +147,31 @@ class CLIPDataModule(L.LightningDataModule):
                 shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
                 seed=ds_cfg.get("seed", 42),
             )
+        elif dtype == "cc3m_hfd":
+            # Arrow-cached CC3M loaded via datasets.load_from_disk().
+            # Requires prior conversion: scripts/convert_wds_to_hf.py --dataset cc3m
+            self.train_dataset = build_cc3m_hfd(
+                arrow_dir=ds_cfg.arrow_dir,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+            )
+        elif dtype == "cc12m_hfd":
+            # Arrow-cached CC12M loaded via datasets.load_from_disk().
+            # Requires prior conversion: scripts/convert_wds_to_hf.py --dataset cc12m
+            self.train_dataset = build_cc12m_hfd(
+                arrow_dir=ds_cfg.arrow_dir,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+            )
+        elif dtype == "combined_hfd":
+            # Arrow-cached CC3M + CC12M via ConcatDataset.
+            # Requires both Arrow dirs to exist (run convert_wds_to_hf.py for each).
+            self.train_dataset = build_combined_hfd(
+                cc3m_arrow_dir=ds_cfg.cc3m_arrow_dir,
+                cc12m_arrow_dir=ds_cfg.cc12m_arrow_dir,
+                transforms=self.preprocess_train,
+                tokenizer=self.tokenizer,
+            )
         else:
             raise ValueError(f"Unknown dataset type '{dtype}'.")
 
@@ -150,6 +179,12 @@ class CLIPDataModule(L.LightningDataModule):
         if ds_cfg.get("imagenet_val_root"):
             self.val_datasets["imagenet"] = ImageNetDataset(
                 root=ds_cfg.imagenet_val_root,
+                transform=self.preprocess_val,
+                variant="imagenet",
+            )
+        if ds_cfg.get("imagenet_hf_cache_dir"):
+            self.val_datasets["imagenet"] = ImageNetHFDataset(
+                hf_cache_dir=ds_cfg.imagenet_hf_cache_dir,
                 transform=self.preprocess_val,
                 variant="imagenet",
             )
@@ -203,6 +238,7 @@ class CLIPDataModule(L.LightningDataModule):
         )
 
     def val_dataloader(self) -> list[DataLoader]:
+        eval_workers = self.cfg.training.get("eval_workers", 4)
         loaders = []
         for dataset in self.val_datasets.values():
             loaders.append(
@@ -210,8 +246,9 @@ class CLIPDataModule(L.LightningDataModule):
                     dataset,
                     batch_size=self.cfg.training.get("eval_batch_size", 256),
                     shuffle=False,
-                    num_workers=self.cfg.training.get("workers", 8),
+                    num_workers=eval_workers,
                     pin_memory=True,
+                    persistent_workers=(eval_workers > 0),
                 )
             )
         return loaders

@@ -1,0 +1,23 @@
+# CC3M HuggingFace Datasets config (Arrow-cached, Lustre-safe).
+#
+# Requires one-time conversion before first training run:
+#   python scripts/convert_wds_to_hf.py \
+#       --dataset cc3m \
+#       --hub-cache $SCRATCH/.cache/hub \
+#       --output-dir $SCRATCH/cc3m-hf \
+#       --num-shards 128
+#
+# After conversion, training uses load_from_disk() which mmap's Arrow files:
+#   - No tar opens during training
+#   - No symlink indirection (real files, not snapshot→blob links)
+#   - 128 Arrow shards vs 576 tar shards = fewer Lustre file opens
+#   - Map-style Dataset: Lightning's DistributedSampler handles DDP
+
+type: "cc3m_hfd"
+
+# Directory written by convert_wds_to_hf.py (contains Arrow shards + dataset_info.json).
+# Override per-job: dataset.arrow_dir=/path/to/cc3m-hf
+arrow_dir: "/net/scratch/hscra/plgrid/plgmazurekagh/cc3m-hf"
+
+# Total training samples — used for logging / LR scheduler verification.
+num_samples: 2905954

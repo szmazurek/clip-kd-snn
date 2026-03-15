@@ -89,6 +89,7 @@ class ZeroShotEvalMixin:
         top5_acc[dl_name] += acc5
         counts[dl_name] += images.size(0)
 
+
     def _log_imagenet_metrics(self, top1_acc: dict, top5_acc: dict, counts: dict, prefix: str) -> None:
         for name in top1_acc:
             n = counts[name]

@@ -1,0 +1,29 @@
+# Combined CC3M + CC12M HuggingFace Datasets config (Arrow-cached, Lustre-safe).
+#
+# Requires one-time conversion of both datasets before first training run:
+#   python scripts/convert_wds_to_hf.py \
+#       --dataset cc3m  --hub-cache $SCRATCH/.cache/hub \
+#       --output-dir $SCRATCH/cc3m-hf  --num-shards 128
+#   python scripts/convert_wds_to_hf.py \
+#       --dataset cc12m --hub-cache $SCRATCH/.cache/hub \
+#       --output-dir $SCRATCH/cc12m-hf --num-shards 512
+#
+# After conversion, training uses load_from_disk() which mmap's Arrow files.
+# Uses torch.utils.data.ConcatDataset — map-style with correct __len__.
+# Lightning's DistributedSampler handles DDP sharding uniformly across both.
+
+type: "combined_hfd"
+
+# Directories written by convert_wds_to_hf.py.
+# Override per-job: dataset.cc3m_arrow_dir=... dataset.cc12m_arrow_dir=...
+cc3m_arrow_dir:  "/net/scratch/hscra/plgrid/plgmazurekagh/cc3m-hf"
+cc12m_arrow_dir: "/net/scratch/hscra/plgrid/plgmazurekagh/cc12m-hf"
+
+# Total training samples (CC3M + CC12M).
+num_samples: 13874493
+
+# HuggingFace-cached ImageNet-1K for zero-shot eval.
+# Point to the hub cache dir for the dataset (not the data/ subdir inside the snapshot):
+#   e.g. $SCRATCH/.cache/hub/datasets--ILSVRC--imagenet-1k
+# Override per-job: dataset.imagenet_hf_cache_dir=...
+imagenet_hf_cache_dir: null
