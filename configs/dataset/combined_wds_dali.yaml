@@ -1,0 +1,25 @@
+# Combined CC3M + CC12M WebDataset — DALI-accelerated pipeline (~13.9M samples)
+#
+# Drop-in replacement for cc3m_12m_wds.yaml.  Shard lists from both datasets
+# are concatenated and given to a single DALI reader, which shuffles them
+# together — equivalent to the "::" merge in combined_wds.py.
+
+type: "combined_wds_dali"
+
+cc3m_shard_pattern:  "${oc.env:SCRATCH}/.cache/hub/datasets--pixparse--cc3m-wds/snapshots/46f3d69f840e59d77d52e8decfe5baec97e94c7f/cc3m-train-{0000..0575}.tar"
+cc12m_shard_pattern: "${oc.env:SCRATCH}/.cache/hub/datasets--pixparse--cc12m-wds/snapshots/796118f2eabdb9984f23f7f15d1e74d388612fc6/cc12m-train-{0000..1101}.tar"
+
+# CC3M 2,905,954 + CC12M 10,968,539
+num_samples: 13874493
+
+shuffle_buffer: 5000
+
+seed: 42
+
+imagenet_hf_cache_dir: null
+imagenet_val_root: null
+imagenet_v2_root: null
+imagenet_r_root: null
+imagenet_sketch_root: null
+mscoco_root: null
+flickr30k_root: null

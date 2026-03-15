@@ -13,6 +13,10 @@ workers: 12
 # Separate worker count for validation DataLoaders — keep low to avoid OOM
 # when forking processes that each hold the full ImageNet Arrow dataset.
 eval_workers: 2
+# CPU threads for DALI's reader/prefetch stage (only used with *_wds_dali dataset types).
+# Much lower than `workers` because DALI pipelines do not fork processes —
+# they use threads internally and offload decode/augment to the GPU.
+dali_threads: 4
 prefetch_factor: 8
 # PyTorch Lightning precision string
 precision: "bf16-mixed"

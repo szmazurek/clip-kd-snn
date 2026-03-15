@@ -109,7 +109,6 @@ def main(cfg: DictConfig) -> None:
         # Run validation every N epochs (reuses zeroshot_frequency config key)
         check_val_every_n_epoch=cfg.training.get("zeroshot_frequency", 1),
         num_sanity_val_steps=0,
-        fast_dev_run=True,
     )
     if cfg.training.get("grad_clip_norm"):
         trainer_kwargs["gradient_clip_val"] = cfg.training.grad_clip_norm

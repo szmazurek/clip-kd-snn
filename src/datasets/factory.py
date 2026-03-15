@@ -32,13 +32,14 @@ def _wds_num_samples(total: int) -> int:
 
 from .cc3m import CC3MDataset
 from .cc12m import CC12MDataset
-from .cc3m_wds import build_cc3m_wds
-from .cc12m_wds import build_cc12m_wds
+from .cc3m_wds import build_cc3m_wds, CC3M_TRAIN_SAMPLES
+from .cc12m_wds import build_cc12m_wds, CC12M_TRAIN_SAMPLES
 from .combined import build_combined_dataset
-from .combined_wds import build_combined_wds
+from .combined_wds import build_combined_wds, CC3M_CC12M_TRAIN_SAMPLES
 from .cc3m_hfd import build_cc3m_hfd
 from .cc12m_hfd import build_cc12m_hfd
 from .combined_hfd import build_combined_hfd
+from .dali_wds import DALILoader, build_dali_train_loader
 from .flickr30k import Flickr30KDataset
 from .imagenet import ImageNetDataset
 from .imagenet_hfd import ImageNetHFDataset
@@ -172,6 +173,61 @@ class CLIPDataModule(L.LightningDataModule):
                 transforms=self.preprocess_train,
                 tokenizer=self.tokenizer,
             )
+        elif dtype == "cc3m_wds_dali":
+            # DALI-accelerated CC3M WebDataset.
+            # nvJPEG decode + GPU augmentation → zero large HtoD memcpy for images.
+            # Requires: pip install nvidia-dali-cudaXXX  (CUDA version must match).
+            self.train_dataset = build_dali_train_loader(
+                shard_pattern=ds_cfg.shard_pattern,
+                tokenizer=self.tokenizer,
+                preprocess_train=self.preprocess_train,
+                num_samples=_wds_num_samples(ds_cfg.get("num_samples", CC3M_TRAIN_SAMPLES)),
+                shard_id=self.trainer.global_rank,
+                num_shards=self.trainer.world_size,
+                batch_size=self.cfg.training.batch_size,
+                num_threads=self.cfg.training.get("dali_threads", 4),
+                device_id=self.trainer.local_rank,
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+            )
+        elif dtype == "cc12m_wds_dali":
+            # DALI-accelerated CC12M WebDataset.
+            self.train_dataset = build_dali_train_loader(
+                shard_pattern=ds_cfg.shard_pattern,
+                tokenizer=self.tokenizer,
+                preprocess_train=self.preprocess_train,
+                num_samples=_wds_num_samples(ds_cfg.get("num_samples", CC12M_TRAIN_SAMPLES)),
+                shard_id=self.trainer.global_rank,
+                num_shards=self.trainer.world_size,
+                batch_size=self.cfg.training.batch_size,
+                num_threads=self.cfg.training.get("dali_threads", 4),
+                device_id=self.trainer.local_rank,
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+            )
+        elif dtype == "combined_wds_dali":
+            # DALI-accelerated combined CC3M + CC12M WebDataset.
+            # Shard lists from both patterns are merged and shuffled together.
+            from .dali_wds import _expand_paths
+            all_paths = (
+                _expand_paths(ds_cfg.cc3m_shard_pattern)
+                + _expand_paths(ds_cfg.cc12m_shard_pattern)
+            )
+            self.train_dataset = build_dali_train_loader(
+                shard_pattern=all_paths,
+                tokenizer=self.tokenizer,
+                preprocess_train=self.preprocess_train,
+                num_samples=_wds_num_samples(
+                    ds_cfg.get("num_samples", CC3M_CC12M_TRAIN_SAMPLES)
+                ),
+                shard_id=self.trainer.global_rank,
+                num_shards=self.trainer.world_size,
+                batch_size=self.cfg.training.batch_size,
+                num_threads=self.cfg.training.get("dali_threads", 4),
+                device_id=self.trainer.local_rank,
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+            )
         else:
             raise ValueError(f"Unknown dataset type '{dtype}'.")
 
@@ -220,6 +276,11 @@ class CLIPDataModule(L.LightningDataModule):
             )
 
     def train_dataloader(self) -> DataLoader:
+        # DALI loaders are self-contained iterators (DDP-sharded, GPU-normalised).
+        # Wrapping them in DataLoader would break their protocol; return directly.
+        if isinstance(self.train_dataset, DALILoader):
+            return self.train_dataset
+
         # For IterableDataset (e.g. WebDataset): DDP sharding is handled
         # internally via split_by_node/split_by_worker — omit shuffle.
         # For map-style datasets: Lightning automatically wraps with
