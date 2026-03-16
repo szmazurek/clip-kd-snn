@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import hydra
 import lightning as L
-import torch
+from lightning.pytorch.callbacks import TQDMProgressBar
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
@@ -92,6 +92,7 @@ def main(cfg: DictConfig) -> None:
             save_last=False,
             auto_insert_metric_name=False,
         ),
+        TQDMProgressBar(refresh_rate=10),
     ]
 
     # Logger
@@ -109,6 +110,7 @@ def main(cfg: DictConfig) -> None:
         # Run validation every N epochs (reuses zeroshot_frequency config key)
         check_val_every_n_epoch=cfg.training.get("zeroshot_frequency", 1),
         num_sanity_val_steps=0,
+        num_nodes=int(os.environ.get("SLURM_NNODES", 1)),
     )
     if cfg.training.get("grad_clip_norm"):
         trainer_kwargs["gradient_clip_val"] = cfg.training.grad_clip_norm

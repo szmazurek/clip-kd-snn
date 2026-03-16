@@ -8,8 +8,8 @@ The only data that crosses the PCIe bus is the raw compressed JPEG stream
 the large HtoD memcpy that otherwise fragments the CUDA execution timeline.
 
 Text tokenisation runs inside the DALI pipeline via fn.python_function
-(batch_processing=True), which keeps both pipeline outputs as dense uniform
-tensors so DALIGenericIterator can produce standard PyTorch tensors.
+(batch_processing=True): the tokenizer is called once per batch instead of
+once per sample, reducing GIL acquisition overhead from N→1 per batch.
 
 Usage (via CLIPDataModule — set dataset.type to one of the DALI variants):
     build_dali_train_loader(...)  →  DALILoader
@@ -31,6 +31,7 @@ device as float32 tensors; Lightning's transfer_batch_to_device is a no-op
 for them.  Tokens are CPU int64 (~153 KB for B=256) and are moved to GPU by
 Lightning's transfer_batch_to_device in the normal way.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Sequence, Union
@@ -47,6 +48,7 @@ from torchvision.transforms import Compose, Normalize, RandomResizedCrop, Resize
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _expand_paths(pattern: Union[str, Sequence[str]]) -> list[str]:
     """Expand a brace-expansion shard pattern into a sorted list of real paths.
 
@@ -57,9 +59,11 @@ def _expand_paths(pattern: Union[str, Sequence[str]]) -> list[str]:
         return sorted(str(p) for p in pattern)
     try:
         import braceexpand
+
         return sorted(braceexpand.braceexpand(pattern))
     except ImportError:
         import glob
+
         return sorted(glob.glob(pattern))
 
 
@@ -71,6 +75,7 @@ def _find_index_paths(paths: list[str]) -> list[str] | None:
     so training still starts (just slower on first run).
     """
     import os
+
     idx_paths = [p.replace(".tar", ".idx") for p in paths]
     if all(os.path.exists(p) for p in idx_paths):
         return idx_paths
@@ -90,15 +95,17 @@ def _extract_train_params(preprocess_train: Compose) -> dict:
     be passed directly to DALI's crop_mirror_normalize which operates on
     uint8 inputs.
     """
-    rrc = next(t for t in preprocess_train.transforms if isinstance(t, RandomResizedCrop))
+    rrc = next(
+        t for t in preprocess_train.transforms if isinstance(t, RandomResizedCrop)
+    )
     norm = next(t for t in preprocess_train.transforms if isinstance(t, Normalize))
     size = rrc.size
     return {
         "image_size": size[0] if isinstance(size, (tuple, list)) else int(size),
-        "scale":      (float(rrc.scale[0]), float(rrc.scale[1])),
-        "ratio":      (float(rrc.ratio[0]), float(rrc.ratio[1])),
-        "mean_255":   [float(m) * 255.0 for m in norm.mean],
-        "std_255":    [float(s) * 255.0 for s in norm.std],
+        "scale": (float(rrc.scale[0]), float(rrc.scale[1])),
+        "ratio": (float(rrc.ratio[0]), float(rrc.ratio[1])),
+        "mean_255": [float(m) * 255.0 for m in norm.mean],
+        "std_255": [float(s) * 255.0 for s in norm.std],
     }
 
 
@@ -108,18 +115,19 @@ def _extract_val_params(preprocess_val: Compose) -> dict:
     Parses Resize (image_size) and Normalize (mean, std).
     """
     resize = next(t for t in preprocess_val.transforms if isinstance(t, Resize))
-    norm   = next(t for t in preprocess_val.transforms if isinstance(t, Normalize))
+    norm = next(t for t in preprocess_val.transforms if isinstance(t, Normalize))
     size = resize.size
     return {
         "image_size": int(size) if isinstance(size, int) else int(size[0]),
-        "mean_255":   [float(m) * 255.0 for m in norm.mean],
-        "std_255":    [float(s) * 255.0 for s in norm.std],
+        "mean_255": [float(m) * 255.0 for m in norm.mean],
+        "std_255": [float(s) * 255.0 for s in norm.std],
     }
 
 
 # ---------------------------------------------------------------------------
 # DALI pipeline definitions
 # ---------------------------------------------------------------------------
+
 
 @pipeline_def
 def _clip_train_pipeline(
@@ -197,19 +205,24 @@ def _clip_train_pipeline(
     )
 
     # Tokenise captions on CPU inside DALI's operator thread pool.
-    # batch_processing=False: DALI calls the function once per sample, passing
-    # a 1D numpy uint8 array for each caption (variable length is fine).
-    # Returns a fixed-length int64 array [context_length]; DALI stacks these
-    # into a dense [B, context_length] batch automatically — no PyCapsule issues.
-    def _tokenize_single(text_bytes):
-        text = bytes(text_bytes).rstrip(b"\x00").decode("utf-8", errors="replace").strip()
-        return tokenizer([text]).numpy()[0]  # [context_length,] int64
+    # batch_processing=True: DALI passes the whole batch of byte tensors at
+    # once, so the tokenizer is called once per batch instead of once per
+    # sample.  This reduces GIL acquisition overhead from N to 1 per batch.
+    # The function receives a list of N uint8 tensors and must return a list
+    # of num_outputs lists, each containing N numpy arrays.
+    def _tokenize_batch(texts_bytes_list):
+        texts = [
+            bytes(t).rstrip(b"\x00").decode("utf-8", errors="replace").strip()
+            for t in texts_bytes_list
+        ]
+        token_array = tokenizer(texts).numpy()  # [N, context_length] int32/int64
+        return list(token_array)  # [arr_0, arr_1, …, arr_{N-1}]
 
     tokens = fn.python_function(
         texts,
-        function=_tokenize_single,
+        function=_tokenize_batch,
         num_outputs=1,
-        batch_processing=False,
+        batch_processing=True,
     )
 
     return images, tokens
@@ -267,22 +280,26 @@ def _clip_val_pipeline(
         device="gpu",
         dtype=types.FLOAT,
         crop=[image_size, image_size],
-        crop_pos_x=0.5,   # 0 = left/top, 1 = right/bottom, 0.5 = centre
+        crop_pos_x=0.5,  # 0 = left/top, 1 = right/bottom, 0.5 = centre
         crop_pos_y=0.5,
         mean=mean_255,
         std=std_255,
         output_layout="CHW",
     )
 
-    def _tokenize_single(text_bytes):
-        text = bytes(text_bytes).rstrip(b"\x00").decode("utf-8", errors="replace").strip()
-        return tokenizer([text]).numpy()[0]
+    def _tokenize_batch(texts_bytes_list):
+        texts = [
+            bytes(t).rstrip(b"\x00").decode("utf-8", errors="replace").strip()
+            for t in texts_bytes_list
+        ]
+        token_array = tokenizer(texts).numpy()
+        return list(token_array)
 
     tokens = fn.python_function(
         texts,
-        function=_tokenize_single,
+        function=_tokenize_batch,
         num_outputs=1,
-        batch_processing=False,
+        batch_processing=True,
     )
 
     return images, tokens
@@ -291,6 +308,7 @@ def _clip_val_pipeline(
 # ---------------------------------------------------------------------------
 # DALILoader: DataLoader-compatible wrapper
 # ---------------------------------------------------------------------------
+
 
 class DALILoader:
     """Makes a DALI pipeline iterator look like a DataLoader to Lightning.
@@ -305,9 +323,19 @@ class DALILoader:
 
     Epoch reset
     -----------
-    With auto_reset=True the internal DALIGenericIterator resets automatically
-    after raising StopIteration.  __iter__ returns self, so the next call from
-    Lightning's training loop gets back the already-reset object.
+    auto_reset=False: we manage resets explicitly in __next__ so that the
+    reset() call always lands on a fully-exhausted iterator.  Using
+    auto_reset=True would reset the iterator immediately on StopIteration
+    (starting epoch N+1), and then our explicit reset() call below would
+    land mid-epoch → DALI warning "epoch not finished" + corrupted prefetch
+    queue → zero-filled GPU tensors → NaN loss.
+
+    DDP early-finisher protection: in DDP, shard subsets are distributed by
+    whole tars, so different ranks may have slightly different sample counts.
+    When a rank exhausts its data before __len__ steps, __next__ catches
+    StopIteration, performs a clean reset, and immediately yields the first
+    batch of the next data cycle.  This keeps all ranks advancing together
+    and prevents NCCL all-gather hangs.
     """
 
     def __init__(
@@ -322,7 +350,7 @@ class DALILoader:
             [pipeline],
             output_map=["images", "tokens"],
             reader_name=reader_name,  # enables accurate epoch-level iteration
-            auto_reset=True,
+            auto_reset=False,  # we call reset() explicitly (see __next__)
             last_batch_policy=LastBatchPolicy.DROP,
         )
         self._len = max(1, num_samples // batch_size)
@@ -334,15 +362,24 @@ class DALILoader:
         return self
 
     def __next__(self):
-        batch = next(self._iter)
-        images = batch[0]["images"]   # CUDA float32 [B, 3, H, W]
-        tokens = batch[0]["tokens"]   # CPU int64 [B, context_length]
+        try:
+            batch = next(self._iter)
+        except StopIteration:
+            # Rank exhausted its shard subset (early finisher in DDP) or
+            # Lightning is iterating past the natural epoch boundary.
+            # DALI's epoch is now fully done, so reset() is safe here.
+            self._iter.reset()
+            batch = next(self._iter)
+
+        images = batch[0]["images"].detach().contiguous()
+        tokens = batch[0]["tokens"].detach().contiguous()
         return images, tokens
 
 
 # ---------------------------------------------------------------------------
 # Public factory functions (called from CLIPDataModule.setup())
 # ---------------------------------------------------------------------------
+
 
 def build_dali_train_loader(
     shard_pattern: Union[str, Sequence[str]],
@@ -375,9 +412,9 @@ def build_dali_train_loader(
         shuffle_buffer: Depth of DALI's sample-level shuffle buffer.
         seed:          Random seed for shard and sample shuffling.
     """
-    params       = _extract_train_params(preprocess_train)
-    paths        = _expand_paths(shard_pattern)
-    index_paths  = _find_index_paths(paths)
+    params = _extract_train_params(preprocess_train)
+    paths = _expand_paths(shard_pattern)
+    index_paths = _find_index_paths(paths)
 
     pipeline = _clip_train_pipeline(
         paths=paths,
@@ -396,6 +433,7 @@ def build_dali_train_loader(
         batch_size=batch_size,
         num_threads=num_threads,
         device_id=device_id,
+        prefetch_queue_depth=8,
     )
 
     return DALILoader(pipeline, num_samples, batch_size, reader_name="train_reader")
@@ -413,8 +451,8 @@ def build_dali_val_loader(
     device_id: int = 0,
 ) -> DALILoader:
     """Build a DALI validation loader from a WDS shard pattern."""
-    params      = _extract_val_params(preprocess_val)
-    paths       = _expand_paths(shard_pattern)
+    params = _extract_val_params(preprocess_val)
+    paths = _expand_paths(shard_pattern)
     index_paths = _find_index_paths(paths)
 
     pipeline = _clip_val_pipeline(
