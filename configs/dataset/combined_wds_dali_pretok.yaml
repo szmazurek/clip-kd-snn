@@ -1,0 +1,40 @@
+# Combined CC3M + CC12M WebDataset — DALI pipeline with pre-tokenized .bin shards
+#
+# Requires running scripts/pretokenize_wds.py first:
+#
+#   python scripts/pretokenize_wds.py \
+#       --pattern "${SCRATCH}/.cache/hub/datasets--pixparse--cc3m-wds/snapshots/46f3d69f840e59d77d52e8decfe5baec97e94c7f/cc3m-train-{0000..0575}.tar" \
+#       --output-dir "${SCRATCH}/.cache/hub/pretokenized/cc3m/" \
+#       --workers 32
+#
+#   python scripts/pretokenize_wds.py \
+#       --pattern "${SCRATCH}/.cache/hub/datasets--pixparse--cc12m-wds/snapshots/796118f2eabdb9984f23f7f15d1e74d388612fc6/cc12m-train-{0000..1101}.tar" \
+#       --output-dir "${SCRATCH}/.cache/hub/pretokenized/cc12m/" \
+#       --workers 32
+#
+# Then point cc3m_shard_pattern / cc12m_shard_pattern at the output dirs.
+# The .bin files replace .txt captions; the DALI pipeline uses fn.reinterpret
+# (zero-copy C++ cast) instead of fn.python_function — no Python, no GIL.
+
+type: "combined_wds_dali_pretok"
+
+cc3m_shard_pattern:  "${oc.env:SCRATCH}/.cache/hub/pretokenized/cc3m/cc3m-train-{0000..0575}.tar"
+cc12m_shard_pattern: "${oc.env:SCRATCH}/.cache/hub/pretokenized/cc12m/cc12m-train-{0000..1101}.tar"
+
+# CC3M 2,905,954 + CC12M 10,968,539
+num_samples: 13874493
+
+# Token sequence length — must match --context-length used in pretokenize_wds.py
+context_length: 77
+
+shuffle_buffer: 5000
+
+seed: 42
+
+imagenet_hf_cache_dir: null
+imagenet_val_root: null
+imagenet_v2_root: null
+imagenet_r_root: null
+imagenet_sketch_root: null
+mscoco_root: null
+flickr30k_root: null

@@ -58,13 +58,16 @@ class ZeroShotEvalMixin:
         if not any(n.startswith("imagenet") for n in names):
             return None
         self.student.eval()
-        classifier = build_zero_shot_classifier(
-            model=self.student,
-            classnames=imagenet_classnames,
-            templates=openai_imagenet_template,
-            tokenizer=self.tokenizer,
-            device=self.device,
-        )
+        try:
+            classifier = build_zero_shot_classifier(
+                model=self.student,
+                classnames=imagenet_classnames,
+                templates=openai_imagenet_template,
+                tokenizer=self.tokenizer,
+                device=self.device,
+            )
+        finally:
+            self.student.train()
         return classifier
 
     def _eval_imagenet_batch(
@@ -109,18 +112,21 @@ class ZeroShotEvalMixin:
         if not retrieval_names:
             return
         self.student.eval()
-        for name in retrieval_names:
-            loader = DataLoader(
-                dm.val_datasets[name],
-                batch_size=256,
-                shuffle=False,
-                num_workers=4,
-                pin_memory=True,
-            )
-            img_feats, txt_feats = encode_dataset(self.student, loader, self.device)
-            metrics = compute_retrieval_metrics(img_feats, txt_feats)
-            for metric, val in metrics.items():
-                self.log(f"{prefix}/{name}/{metric}", val, sync_dist=True)
+        try:
+            for name in retrieval_names:
+                loader = DataLoader(
+                    dm.val_datasets[name],
+                    batch_size=256,
+                    shuffle=False,
+                    num_workers=4,
+                    pin_memory=True,
+                )
+                img_feats, txt_feats = encode_dataset(self.student, loader, self.device)
+                metrics = compute_retrieval_metrics(img_feats, txt_feats)
+                for metric, val in metrics.items():
+                    self.log(f"{prefix}/{name}/{metric}", val, sync_dist=True)
+        finally:
+            self.student.train()
 
     # ------------------------------------------------------------------
     # Validation hooks

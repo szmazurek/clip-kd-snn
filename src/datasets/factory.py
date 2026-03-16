@@ -39,7 +39,7 @@ from .combined_wds import build_combined_wds, CC3M_CC12M_TRAIN_SAMPLES
 from .cc3m_hfd import build_cc3m_hfd
 from .cc12m_hfd import build_cc12m_hfd
 from .combined_hfd import build_combined_hfd
-from .dali_wds import DALILoader, build_dali_train_loader
+from .dali_wds import DALILoader, build_dali_train_loader, build_dali_train_loader_pretok
 from .flickr30k import Flickr30KDataset
 from .imagenet import ImageNetDataset
 from .imagenet_hfd import ImageNetHFDataset
@@ -227,6 +227,30 @@ class CLIPDataModule(L.LightningDataModule):
                 device_id=self.trainer.local_rank,
                 shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
                 seed=ds_cfg.get("seed", 42),
+            )
+        elif dtype == "combined_wds_dali_pretok":
+            # DALI-accelerated combined CC3M + CC12M with pre-tokenized .bin shards.
+            # Run scripts/pretokenize_wds.py first to produce the .bin shards.
+            # Zero Python overhead in text pipeline — fn.reinterpret replaces fn.python_function.
+            from .dali_wds import _expand_paths
+            all_paths = (
+                _expand_paths(ds_cfg.cc3m_shard_pattern)
+                + _expand_paths(ds_cfg.cc12m_shard_pattern)
+            )
+            self.train_dataset = build_dali_train_loader_pretok(
+                shard_pattern=all_paths,
+                preprocess_train=self.preprocess_train,
+                num_samples=_wds_num_samples(
+                    ds_cfg.get("num_samples", CC3M_CC12M_TRAIN_SAMPLES)
+                ),
+                shard_id=self.trainer.global_rank,
+                num_shards=self.trainer.world_size,
+                batch_size=self.cfg.training.batch_size,
+                num_threads=self.cfg.training.get("dali_threads", 4),
+                device_id=self.trainer.local_rank,
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+                context_length=ds_cfg.get("context_length", 77),
             )
         else:
             raise ValueError(f"Unknown dataset type '{dtype}'.")

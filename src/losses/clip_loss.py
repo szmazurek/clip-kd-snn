@@ -30,7 +30,10 @@ class CLIPInfoNCELoss(CLIPDistillationLoss):
         Returns:
             Scalar loss tensor.
         """
-        logits_per_image = features.s_logit_scale * features.s_img @ features.s_txt.T
+        # Cast to float32 before cross_entropy: in bf16, off-diagonal softmax values
+        # underflow to 0 when logit_scale × cos_sim > log(bf16_max) ≈ 88.7, producing
+        # a wrong gradient of -1 on the diagonal and exploding the logit_scale update.
+        logits_per_image = (features.s_logit_scale * features.s_img @ features.s_txt.T).float()
         logits_per_text = logits_per_image.T
 
         total_loss = (

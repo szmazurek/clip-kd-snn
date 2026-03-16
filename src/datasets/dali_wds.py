@@ -128,6 +128,93 @@ def _extract_val_params(preprocess_val: Compose) -> dict:
 # DALI pipeline definitions
 # ---------------------------------------------------------------------------
 
+# Standard context length for all open_clip CLIP models (SimpleTokenizer).
+_CLIP_CONTEXT_LENGTH = 77
+
+
+@pipeline_def
+def _clip_train_pipeline_pretok(
+    paths: list[str],
+    shard_id: int,
+    num_shards: int,
+    image_size: int,
+    scale: tuple,
+    ratio: tuple,
+    mean_255: list,
+    std_255: list,
+    shuffle_buffer: int = 1000,
+    reader_seed: int = 42,
+    index_paths: list[str] | None = None,
+    context_length: int = _CLIP_CONTEXT_LENGTH,
+):
+    """DALI pipeline for CLIP training with pre-tokenized shards.
+
+    Reads .jpg + .bin pairs produced by scripts/pretokenize_wds.py.
+    The .bin file contains context_length × int32 token IDs stored as raw
+    little-endian bytes (no header).  fn.reinterpret performs a zero-copy
+    cast from uint8 to int32 entirely in C++ — no Python, no GIL.
+
+    Execution order:
+      1. fn.readers.webdataset     — CPU I/O: compressed JPEG + raw int32 bytes
+      2. fn.decoders.image         — nvJPEG (mixed): JPEG bytes → GPU RGB uint8
+      3. fn.random_resized_crop    — GPU: bicubic crop + resize to image_size²
+      4. fn.crop_mirror_normalize  — GPU: uint8 → float32, (x − mean) / std, CHW
+      5. fn.reinterpret            — CPU: uint8 view → int32[context_length]  (zero-copy)
+    """
+    reader_kwargs = {}
+    if index_paths is not None:
+        reader_kwargs["index_paths"] = index_paths
+
+    jpegs, raw_tokens = fn.readers.webdataset(
+        paths=paths,
+        ext=["jpg", "bin"],
+        shard_id=shard_id,
+        num_shards=num_shards,
+        random_shuffle=True,
+        initial_fill=shuffle_buffer,
+        seed=reader_seed,
+        pad_last_batch=False,
+        name="train_reader",
+        **reader_kwargs,
+    )
+
+    images = fn.decoders.image(
+        jpegs,
+        device="mixed",
+        output_type=types.RGB,
+    )
+
+    images = fn.random_resized_crop(
+        images,
+        device="gpu",
+        size=[image_size, image_size],
+        random_area=[scale[0], scale[1]],
+        random_aspect_ratio=[ratio[0], ratio[1]],
+        interp_type=types.INTERP_CUBIC,
+        antialias=True,
+    )
+
+    images = fn.crop_mirror_normalize(
+        images,
+        device="gpu",
+        dtype=types.FLOAT,
+        mean=mean_255,
+        std=std_255,
+        output_layout="CHW",
+    )
+
+    # Zero-copy reinterpret: uint8[context_length*4] → int32[context_length].
+    # The .bin file is raw little-endian int32 bytes written by pretokenize_wds.py.
+    # CLIP vocab size ≤ 49408 fits in int32.  DALILoader.__next__ casts to int64
+    # so downstream encode_text (which requires LongTensor) works unchanged.
+    tokens = fn.reinterpret(
+        raw_tokens,
+        dtype=types.INT32,  # type: ignore[attr-defined]  — stubs incomplete
+        shape=[context_length],
+    )
+
+    return images, tokens
+
 
 @pipeline_def
 def _clip_train_pipeline(
@@ -372,7 +459,9 @@ class DALILoader:
             batch = next(self._iter)
 
         images = batch[0]["images"].detach().contiguous()
-        tokens = batch[0]["tokens"].detach().contiguous()
+        # .long(): no-op for int64 (python_function path), int32→int64 for
+        # pretokenized path — encode_text requires LongTensor for embedding lookup.
+        tokens = batch[0]["tokens"].detach().contiguous().long()
         return images, tokens
 
 
@@ -433,7 +522,7 @@ def build_dali_train_loader(
         batch_size=batch_size,
         num_threads=num_threads,
         device_id=device_id,
-        prefetch_queue_depth=8,
+        prefetch_queue_depth=2,
     )
 
     return DALILoader(pipeline, num_samples, batch_size, reader_name="train_reader")
@@ -470,3 +559,61 @@ def build_dali_val_loader(
     )
 
     return DALILoader(pipeline, num_samples, batch_size, reader_name="val_reader")
+
+
+def build_dali_train_loader_pretok(
+    shard_pattern: Union[str, Sequence[str]],
+    preprocess_train: Compose,
+    num_samples: int,
+    shard_id: int,
+    num_shards: int,
+    batch_size: int,
+    num_threads: int = 4,
+    device_id: int = 0,
+    shuffle_buffer: int = 1000,
+    seed: int = 42,
+    context_length: int = _CLIP_CONTEXT_LENGTH,
+) -> DALILoader:
+    """Build a DALI training loader from pre-tokenized WDS shards (.jpg + .bin).
+
+    Shards must be produced by scripts/pretokenize_wds.py.
+    No Python function in the pipeline — tokens are read and reinterpreted
+    entirely in C++ via fn.reinterpret (zero GIL, zero Python overhead).
+
+    Args:
+        shard_pattern:  Brace-expansion pattern or explicit list of .tar paths.
+        preprocess_train: openclip preprocess_train Compose (image params only).
+        num_samples:    Per-rank sample count for one epoch (total // world_size).
+        shard_id:       Global rank of this process  (0 .. world_size − 1).
+        num_shards:     Total DDP world size.
+        batch_size:     Samples per batch.
+        num_threads:    CPU threads for DALI's reader/prefetch stage.
+        device_id:      CUDA device index on this node  (= local_rank).
+        shuffle_buffer: Depth of DALI's sample-level shuffle buffer.
+        seed:           Random seed for shard and sample shuffling.
+        context_length: Token sequence length (must match pretokenize_wds.py --context-length).
+    """
+    params = _extract_train_params(preprocess_train)
+    paths = _expand_paths(shard_pattern)
+    index_paths = _find_index_paths(paths)
+
+    pipeline = _clip_train_pipeline_pretok(
+        paths=paths,
+        shard_id=shard_id,
+        num_shards=num_shards,
+        image_size=params["image_size"],
+        scale=params["scale"],
+        ratio=params["ratio"],
+        mean_255=params["mean_255"],
+        std_255=params["std_255"],
+        shuffle_buffer=shuffle_buffer,
+        reader_seed=seed,
+        index_paths=index_paths,
+        context_length=context_length,
+        batch_size=batch_size,
+        num_threads=num_threads,
+        device_id=device_id,
+        prefetch_queue_depth=2,
+    )
+
+    return DALILoader(pipeline, num_samples, batch_size, reader_name="train_reader")

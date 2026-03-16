@@ -88,6 +88,9 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
             labels=labels,
         )
         loss = self.loss_fn(features)
+        if not loss.isfinite():
+            self.log("train/nan_skip", 1.0, on_step=True, sync_dist=False)
+            return None
         self.log(
             "train/loss",
             loss,
