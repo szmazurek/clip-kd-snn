@@ -6,3 +6,6 @@ logs/
 test.sh
 test_combined.sh
 test_hfd*.sh
+*.nsys-rep
+checkpoints/
+checkpoints/*.ckpt

@@ -1,0 +1,53 @@
+cfg:
+  model:
+    name: timm-vit_tiny_patch16_224
+    pretrained: null
+    teacher_name: null
+    teacher_checkpoint: null
+  dataset:
+    type: combined_wds_dali
+    cc3m_shard_pattern: /net/scratch/hscra/plgrid/plgmazurekagh/.cache/hub/datasets--pixparse--cc3m-wds/snapshots/46f3d69f840e59d77d52e8decfe5baec97e94c7f/cc3m-train-{0000..0575}.tar
+    cc12m_shard_pattern: /net/scratch/hscra/plgrid/plgmazurekagh/cc12m/cc12m-train-{0000..2175}.tar
+    num_samples: 13874493
+    shuffle_buffer: 5000
+    seed: 42
+    imagenet_hf_cache_dir: /net/scratch/hscra/plgrid/plgmazurekagh/.cache/hub/datasets--ILSVRC--imagenet-1k
+    imagenet_val_root: null
+    imagenet_v2_root: null
+    imagenet_r_root: null
+    imagenet_sketch_root: null
+    mscoco_root: null
+    flickr30k_root: null
+    train_root: /data/cc3m/images
+    train_csv: /data/cc3m/train.tsv
+  loss:
+    alpha_task: 1.0
+    alpha_ckd: 0.0
+    alpha_icl: 0.0
+    alpha_cross_kd: 0.0
+    alpha_fd: 0.0
+    alpha_mfd: 0.0
+    alpha_gd: 0.0
+    alpha_afd: 0.0
+    gather_with_grad: false
+    local_loss: false
+  training:
+    lr: 0.001
+    beta1: 0.9
+    beta2: 0.98
+    eps: 1.0e-06
+    weight_decay: 0.1
+    warmup_steps: 10000
+    epochs: 32
+    batch_size: 256
+    eval_batch_size: 256
+    workers: 4
+    eval_workers: 2
+    dali_threads: 8
+    prefetch_factor: 8
+    precision: bf16-mixed
+    mask_ratio: 0.0
+    grad_clip_norm: 1.0
+    seed: 42
+    zeroshot_frequency: 1
+    save_every_n_epochs: 5
