@@ -2,12 +2,12 @@
 lr: 1.0e-3
 beta1: 0.9
 beta2: 0.98
-eps: 1.0e-6
+eps: 1.0e-10 # According to Karpathy
 weight_decay: 0.1
 warmup_steps: 10000
 epochs: 32
 # Per-GPU batch size; total = batch_size * num_gpus (paper uses 1024 total on 8 GPUs)
-batch_size: 256
+batch_size: 128
 eval_batch_size: 256
 workers: 4
 # Separate worker count for validation DataLoaders — keep low to avoid OOM
