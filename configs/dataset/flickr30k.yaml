@@ -1,9 +1,0 @@
-# flickr30k eval dataset config
-type: "imagenet"
-imagenet_val_root: null
-imagenet_v2_root: null
-imagenet_r_root: null
-imagenet_sketch_root: null
-imagenet_a_root: null
-mscoco_root: null
-flickr30k_root: null

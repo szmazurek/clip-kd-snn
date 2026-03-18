@@ -488,6 +488,7 @@ def build_dali_train_loader(
     device_id: int = 0,
     shuffle_buffer: int = 1000,
     seed: int = 42,
+    prefetch_queue_depth: int = 2,
 ) -> DALILoader:
     """Build a DALI training loader from a WDS shard pattern.
 
@@ -528,7 +529,7 @@ def build_dali_train_loader(
         batch_size=batch_size,
         num_threads=num_threads,
         device_id=device_id,
-        prefetch_queue_depth=2,
+        prefetch_queue_depth=prefetch_queue_depth,
     )
 
     return DALILoader(pipeline, num_samples, batch_size, reader_name="train_reader")
@@ -579,6 +580,7 @@ def build_dali_train_loader_pretok(
     shuffle_buffer: int = 1000,
     seed: int = 42,
     context_length: int = _CLIP_CONTEXT_LENGTH,
+    prefetch_queue_depth: int = 2,
 ) -> DALILoader:
     """Build a DALI training loader from pre-tokenized WDS shards (.jpg + .bin).
 
@@ -619,7 +621,7 @@ def build_dali_train_loader_pretok(
         batch_size=batch_size,
         num_threads=num_threads,
         device_id=device_id,
-        prefetch_queue_depth=2,
+        prefetch_queue_depth=prefetch_queue_depth,
     )
 
     return DALILoader(pipeline, num_samples, batch_size, reader_name="train_reader")

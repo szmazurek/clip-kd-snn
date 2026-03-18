@@ -7,7 +7,6 @@ from .cc12m_hfd import build_cc12m_hfd
 from .combined_hfd import build_combined_hfd
 from .dali_wds import DALILoader, build_dali_train_loader, build_dali_val_loader
 from .imagenet import ImageNetDataset
-from .imagenet_hfd import ImageNetHFDataset, build_imagenet_hfd
 from .mscoco import MSCOCODataset
 from .flickr30k import Flickr30KDataset
 from .factory import CLIPDataModule
@@ -28,8 +27,6 @@ __all__ = [
     "build_dali_train_loader",
     "build_dali_val_loader",
     "ImageNetDataset",
-    "ImageNetHFDataset",
-    "build_imagenet_hfd",
     "MSCOCODataset",
     "Flickr30KDataset",
     "CLIPDataModule",

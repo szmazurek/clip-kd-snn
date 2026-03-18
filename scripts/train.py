@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import hydra
 import lightning as L
+from hydra.core.hydra_config import HydraConfig
 from lightning.pytorch.callbacks import TQDMProgressBar
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
@@ -69,13 +70,18 @@ def main(cfg: DictConfig) -> None:
         tokenizer=tokenizer,
     )
 
+    # Resolve paths inside this run's Hydra output dir so each run is self-contained
+    output_dir = HydraConfig.get().runtime.output_dir
+    ckpt_dir = os.path.join(output_dir, "checkpoints")
+    log_dir = os.path.join(output_dir, "logs")
+
     # Callbacks
     callbacks = [
         LogitScaleMonitor(),
         LearningRateMonitor(logging_interval="step"),
         # Best-model checkpoint: tracks val/imagenet/top1, keeps top-3 + last
         ModelCheckpoint(
-            dirpath="checkpoints/",
+            dirpath=ckpt_dir,
             filename="best-epoch={epoch:03d}-top1={val/imagenet/top1:.4f}",
             monitor="val/imagenet/top1",
             mode="max",
@@ -85,7 +91,7 @@ def main(cfg: DictConfig) -> None:
         ),
         # Periodic checkpoint: saves every N epochs unconditionally
         ModelCheckpoint(
-            dirpath="checkpoints/",
+            dirpath=ckpt_dir,
             filename="periodic-epoch={epoch:03d}",
             every_n_epochs=cfg.training.get("save_every_n_epochs", 5),
             save_top_k=-1,  # keep all periodic checkpoints
@@ -96,7 +102,7 @@ def main(cfg: DictConfig) -> None:
     ]
 
     # Logger
-    logger = CSVLogger(save_dir="logs/", name="clip_kd")
+    logger = CSVLogger(save_dir=log_dir)
 
     # Trainer
     trainer_kwargs = dict(
@@ -111,6 +117,7 @@ def main(cfg: DictConfig) -> None:
         check_val_every_n_epoch=cfg.training.get("zeroshot_frequency", 1),
         num_sanity_val_steps=0,
         num_nodes=int(os.environ.get("SLURM_NNODES", 1)),
+        fast_dev_run=cfg.training.get("fast_dev_run", False),
     )
     if cfg.training.get("grad_clip_norm"):
         trainer_kwargs["gradient_clip_val"] = cfg.training.grad_clip_norm

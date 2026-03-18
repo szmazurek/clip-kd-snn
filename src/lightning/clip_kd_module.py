@@ -176,14 +176,14 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         # ------ Compute composite loss ------
         total_loss, loss_dict = self.loss_fn(features)
         if not total_loss.isfinite():
-            self.log("train/nan_skip", 1.0, on_step=True, sync_dist=False)
+            self.log("train_nan_skip", 1.0, on_step=True, sync_dist=False)
             return None
 
         # ------ Log ------
-        self.log("train/total_loss", total_loss, on_step=True, on_epoch=True, sync_dist=True)
+        self.log("train_total_loss", total_loss, on_step=True, on_epoch=True, sync_dist=True)
         for name, val in loss_dict.items():
             if name != "total":
-                self.log(f"train/{name}_loss", val, on_step=True, on_epoch=False)
+                self.log(f"train_{name}_loss", val, on_step=True, on_epoch=False)
 
         return total_loss
 

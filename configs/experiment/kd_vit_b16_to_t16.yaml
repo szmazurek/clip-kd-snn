@@ -6,6 +6,8 @@ defaults:
   - override /loss: unified
   - override /dataset: cc3m
 
+exp_name: kd_vit_b16_to_t16
+
 model:
   teacher_checkpoint: /data/checkpoints/ViT-B-16-laion400m_e31-d9920b53.pt
 

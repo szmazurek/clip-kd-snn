@@ -5,9 +5,11 @@ defaults:
   - training: default
   - _self_
 
+exp_name: run  # override per experiment (configs/experiment/) or via CLI
+
 hydra:
   run:
-    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
   sweep:
-    dir: outputs/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/multirun/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
     subdir: ${hydra.job.num}

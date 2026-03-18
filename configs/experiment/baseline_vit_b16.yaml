@@ -5,6 +5,8 @@ defaults:
   - override /loss: clip_only
   - override /dataset: cc3m
 
+exp_name: baseline_vit_b16
+
 model:
   name: "ViT-B-16"
   teacher_name: null

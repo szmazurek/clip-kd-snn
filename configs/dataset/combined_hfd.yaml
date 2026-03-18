@@ -22,8 +22,7 @@ cc12m_arrow_dir: "/net/scratch/hscra/plgrid/plgmazurekagh/cc12m-hf"
 # Total training samples (CC3M + CC12M).
 num_samples: 13874493
 
-# HuggingFace-cached ImageNet-1K for zero-shot eval.
-# Point to the hub cache dir for the dataset (not the data/ subdir inside the snapshot):
-#   e.g. $SCRATCH/.cache/hub/datasets--ILSVRC--imagenet-1k
-# Override per-job: dataset.imagenet_hf_cache_dir=...
-imagenet_hf_cache_dir: null
+imagenet_wds_dir: "imagenet-v1-wds/test"
+imagenet_v2_wds_dir: "imagenet-v2-wds/test"
+imagenet_r_wds_dir: "imagenet-r-wds/test"
+imagenet_sketch_wds_dir: "imagenet-sketch-wds/test"

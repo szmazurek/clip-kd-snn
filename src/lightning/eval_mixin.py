@@ -18,7 +18,6 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 from ..evaluation.imagenet_eval import _accuracy
 from ..evaluation.imagenet_zeroshot_data import (
@@ -26,12 +25,11 @@ from ..evaluation.imagenet_zeroshot_data import (
     imagenet_r_indices,
     openai_imagenet_template,
 )
-from ..evaluation.retrieval_eval import compute_retrieval_metrics, encode_dataset
 from ..evaluation.zero_shot_classifier import build_zero_shot_classifier
 
 
 class ZeroShotEvalMixin:
-    """Mixin that adds zero-shot ImageNet + retrieval evaluation to a LightningModule.
+    """Mixin that adds zero-shot ImageNet evaluation to a LightningModule.
 
     Plug in by listing it before L.LightningModule in the class bases:
 
@@ -100,33 +98,8 @@ class ZeroShotEvalMixin:
                 continue
             top1 = top1_acc[name] / n
             top5 = top5_acc[name] / n
-            self.log(f"{prefix}/{name}/top1", top1, sync_dist=True, prog_bar=(name == "imagenet"))
-            self.log(f"{prefix}/{name}/top5", top5, sync_dist=True, prog_bar=False)
-
-    def _log_retrieval_metrics(self, prefix: str) -> None:
-        """Run retrieval eval by re-iterating retrieval datasets from the datamodule."""
-        dm = self.trainer.datamodule
-        if dm is None or not hasattr(dm, "val_datasets"):
-            return
-        retrieval_names = [k for k in dm.val_datasets if k in ("mscoco", "flickr30k")]
-        if not retrieval_names:
-            return
-        self.student.eval()
-        try:
-            for name in retrieval_names:
-                loader = DataLoader(
-                    dm.val_datasets[name],
-                    batch_size=256,
-                    shuffle=False,
-                    num_workers=4,
-                    pin_memory=True,
-                )
-                img_feats, txt_feats = encode_dataset(self.student, loader, self.device)
-                metrics = compute_retrieval_metrics(img_feats, txt_feats)
-                for metric, val in metrics.items():
-                    self.log(f"{prefix}/{name}/{metric}", val, sync_dist=True)
-        finally:
-            self.student.train()
+            self.log(f"{prefix}_{name}_top1", top1, sync_dist=True, prog_bar=True)
+            self.log(f"{prefix}_{name}_top5", top5, sync_dist=True, prog_bar=False)
 
     # ------------------------------------------------------------------
     # Validation hooks
@@ -153,7 +126,6 @@ class ZeroShotEvalMixin:
 
     def on_validation_epoch_end(self) -> None:
         self._log_imagenet_metrics(self._val_top1, self._val_top5, self._val_n, prefix="val")
-        self._log_retrieval_metrics(prefix="val")
 
     # ------------------------------------------------------------------
     # Test hooks (identical logic, different metric prefix)
@@ -179,4 +151,3 @@ class ZeroShotEvalMixin:
 
     def on_test_epoch_end(self) -> None:
         self._log_imagenet_metrics(self._test_top1, self._test_top5, self._test_n, prefix="test")
-        self._log_retrieval_metrics(prefix="test")

@@ -26,10 +26,8 @@ shuffle_buffer: 5000
 
 seed: 42
 
-imagenet_hf_cache_dir: null
 imagenet_val_root: null
 imagenet_v2_root: null
 imagenet_r_root: null
 imagenet_sketch_root: null
-mscoco_root: null
-flickr30k_root: null
+

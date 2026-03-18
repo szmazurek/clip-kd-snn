@@ -40,10 +40,7 @@ from .cc3m_hfd import build_cc3m_hfd
 from .cc12m_hfd import build_cc12m_hfd
 from .combined_hfd import build_combined_hfd
 from .dali_wds import DALILoader, build_dali_train_loader, build_dali_train_loader_pretok
-from .flickr30k import Flickr30KDataset
-from .imagenet import ImageNetDataset
-from .imagenet_hfd import ImageNetHFDataset
-from .mscoco import MSCOCODataset
+from .imagenet_wds import build_imagenet_wds
 
 
 class CLIPDataModule(L.LightningDataModule):
@@ -189,6 +186,7 @@ class CLIPDataModule(L.LightningDataModule):
                 device_id=self.trainer.local_rank,
                 shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
                 seed=ds_cfg.get("seed", 42),
+                prefetch_queue_depth=self.cfg.training.get("prefetch_queue_depth", 2),
             )
         elif dtype == "cc12m_wds_dali":
             # DALI-accelerated CC12M WebDataset.
@@ -204,6 +202,7 @@ class CLIPDataModule(L.LightningDataModule):
                 device_id=self.trainer.local_rank,
                 shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
                 seed=ds_cfg.get("seed", 42),
+                prefetch_queue_depth=self.cfg.training.get("prefetch_queue_depth", 2),
             )
         elif dtype == "combined_wds_dali":
             # DALI-accelerated combined CC3M + CC12M WebDataset.
@@ -227,6 +226,7 @@ class CLIPDataModule(L.LightningDataModule):
                 device_id=self.trainer.local_rank,
                 shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
                 seed=ds_cfg.get("seed", 42),
+                prefetch_queue_depth=self.cfg.training.get("prefetch_queue_depth", 2),
             )
         elif dtype == "combined_wds_dali_pretok":
             # DALI-accelerated combined CC3M + CC12M with pre-tokenized .bin shards.
@@ -251,53 +251,24 @@ class CLIPDataModule(L.LightningDataModule):
                 shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
                 seed=ds_cfg.get("seed", 42),
                 context_length=ds_cfg.get("context_length", 77),
+                prefetch_queue_depth=self.cfg.training.get("prefetch_queue_depth", 2),
             )
         else:
             raise ValueError(f"Unknown dataset type '{dtype}'.")
 
         # ---- Evaluation datasets ----
-        if ds_cfg.get("imagenet_val_root"):
-            self.val_datasets["imagenet"] = ImageNetDataset(
-                root=ds_cfg.imagenet_val_root,
-                transform=self.preprocess_val,
-                variant="imagenet",
-            )
-        if ds_cfg.get("imagenet_hf_cache_dir"):
-            self.val_datasets["imagenet"] = ImageNetHFDataset(
-                hf_cache_dir=ds_cfg.imagenet_hf_cache_dir,
-                transform=self.preprocess_val,
-                variant="imagenet",
-            )
-        if ds_cfg.get("imagenet_v2_root"):
-            self.val_datasets["imagenet_v2"] = ImageNetDataset(
-                root=ds_cfg.imagenet_v2_root,
-                transform=self.preprocess_val,
-                variant="imagenet_v2",
-            )
-        if ds_cfg.get("imagenet_r_root"):
-            self.val_datasets["imagenet_r"] = ImageNetDataset(
-                root=ds_cfg.imagenet_r_root,
-                transform=self.preprocess_val,
-                variant="imagenet_r",
-            )
-        if ds_cfg.get("imagenet_sketch_root"):
-            self.val_datasets["imagenet_sketch"] = ImageNetDataset(
-                root=ds_cfg.imagenet_sketch_root,
-                transform=self.preprocess_val,
-                variant="imagenet_sketch",
-            )
-        if ds_cfg.get("mscoco_root"):
-            self.val_datasets["mscoco"] = MSCOCODataset(
-                data_path=ds_cfg.mscoco_root,
-                transform=self.preprocess_val,
-                tokenizer=self.tokenizer,
-            )
-        if ds_cfg.get("flickr30k_root"):
-            self.val_datasets["flickr30k"] = Flickr30KDataset(
-                data_path=ds_cfg.flickr30k_root,
-                transform=self.preprocess_val,
-                tokenizer=self.tokenizer,
-            )
+        _imagenet_wds_keys = {
+            "imagenet_wds_dir": "imagenet",
+            "imagenet_v2_wds_dir": "imagenet_v2",
+            "imagenet_r_wds_dir": "imagenet_r",
+            "imagenet_sketch_wds_dir": "imagenet_sketch",
+        }
+        for cfg_key, variant_name in _imagenet_wds_keys.items():
+            path = ds_cfg.get(cfg_key)
+            if path:
+                self.val_datasets[variant_name] = build_imagenet_wds(
+                    wds_dir=path, transform=self.preprocess_val, variant=variant_name
+                )
 
     def train_dataloader(self) -> DataLoader:
         # DALI loaders are self-contained iterators (DDP-sharded, GPU-normalised).
@@ -326,14 +297,15 @@ class CLIPDataModule(L.LightningDataModule):
         eval_workers = self.cfg.training.get("eval_workers", 4)
         loaders = []
         for dataset in self.val_datasets.values():
+            is_iterable = isinstance(dataset, IterableDataset)
             loaders.append(
                 DataLoader(
                     dataset,
                     batch_size=self.cfg.training.get("eval_batch_size", 256),
                     shuffle=False,
-                    num_workers=eval_workers,
+                    num_workers=1 if is_iterable else eval_workers,
                     pin_memory=True,
-                    persistent_workers=(eval_workers > 0),
+                    persistent_workers=False if is_iterable else (eval_workers > 0),
                 )
             )
         return loaders
