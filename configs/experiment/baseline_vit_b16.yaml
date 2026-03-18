@@ -1,0 +1,19 @@
+# @package _global_
+# Baseline ViT-T/16 training on CC3M (no teacher)
+defaults:
+  - override /model: vit_base_16
+  - override /loss: clip_only
+  - override /dataset: cc3m
+
+model:
+  name: "ViT-B-16"
+  teacher_name: null
+  teacher_checkpoint: null
+
+dataset:
+  train_root: /data/cc3m/images
+  train_csv: /data/cc3m/train.tsv
+
+training:
+  epochs: 32
+  batch_size: 256

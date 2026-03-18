@@ -18,8 +18,8 @@
 
 type: "combined_wds_dali_pretok"
 
-cc3m_shard_pattern:  "${oc.env:SCRATCH}/.cache/hub/pretokenized/cc3m/cc3m-train-{0000..0575}.tar"
-cc12m_shard_pattern: "${oc.env:SCRATCH}/.cache/hub/pretokenized/cc12m/cc12m-train-{0000..1101}.tar"
+cc3m_shard_pattern:  "${oc.env:SCRATCH}/.cache/hub/pretokenized/cc3m/cc3m-train-????.tar"
+cc12m_shard_pattern: "${oc.env:SCRATCH}/.cache/hub/pretokenized/cc12m/cc12m-train-????.tar"
 
 # CC3M 2,905,954 + CC12M 10,968,539
 num_samples: 13874493

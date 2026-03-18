@@ -6,8 +6,8 @@
 
 type: "combined_wds_dali"
 
-cc3m_shard_pattern:  "${oc.env:SCRATCH}/.cache/hub/datasets--pixparse--cc3m-wds/snapshots/46f3d69f840e59d77d52e8decfe5baec97e94c7f/cc3m-train-{0000..0575}.tar"
-cc12m_shard_pattern: "${oc.env:SCRATCH}/.cache/hub/datasets--pixparse--cc12m-wds/snapshots/796118f2eabdb9984f23f7f15d1e74d388612fc6/cc12m-train-{0000..1101}.tar"
+cc3m_shard_pattern:  "${oc.env:SCRATCH}/.cache/hub/datasets--pixparse--cc3m-wds/snapshots/46f3d69f840e59d77d52e8decfe5baec97e94c7f/cc3m-train-????.tar"
+cc12m_shard_pattern: "${oc.env:SCRATCH}/.cache/hub/datasets--pixparse--cc12m-wds/snapshots/796118f2eabdb9984f23f7f15d1e74d388612fc6/cc12m-train-????.tar"
 
 # CC3M 2,905,954 + CC12M 10,968,539
 num_samples: 13874493

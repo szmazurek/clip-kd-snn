@@ -35,6 +35,7 @@ Usage
   # Verify a shard without writing
   python scripts/pretokenize_wds.py --pattern "..." --output-dir "..." --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -79,7 +80,7 @@ def _process_shard(args: tuple) -> tuple[str, bool, str]:
                 dot = name.rfind(".")
                 if dot == -1:
                     continue
-                key, ext = name[:dot], name[dot + 1:]
+                key, ext = name[:dot], name[dot + 1 :]
                 if key not in samples:
                     samples[key] = {}
                 file_obj = src_tar.extractfile(member)
@@ -89,7 +90,11 @@ def _process_shard(args: tuple) -> tuple[str, bool, str]:
         if dry_run:
             # Just count and return without writing
             n_valid = sum(1 for s in samples.values() if "jpg" in s and "txt" in s)
-            return tar_path, True, f"dry-run: {len(samples)} entries, {n_valid} valid jpg+txt pairs"
+            return (
+                tar_path,
+                True,
+                f"dry-run: {len(samples)} entries, {n_valid} valid jpg+txt pairs",
+            )
 
         # Batch-tokenize all captions for this shard
         keys_with_both = [k for k, s in samples.items() if "jpg" in s and "txt" in s]
@@ -161,9 +166,11 @@ def _process_shard(args: tuple) -> tuple[str, bool, str]:
 def _expand_pattern(pattern: str) -> list[str]:
     try:
         import braceexpand
+
         return sorted(braceexpand.braceexpand(pattern))
     except ImportError:
         import glob
+
         return sorted(glob.glob(pattern))
 
 
@@ -173,34 +180,45 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--pattern", action="append", dest="patterns", required=True,
+        "--pattern",
+        action="append",
+        dest="patterns",
+        required=True,
         metavar="BRACE_PATTERN",
         help="Brace-expansion shard pattern (repeatable for multiple datasets)",
     )
     parser.add_argument(
-        "--output-dir", required=True,
+        "--output-dir",
+        required=True,
         help="Directory to write pre-tokenized shards (created if missing)",
     )
     parser.add_argument(
-        "--tokenizer", default="ViT-B-32",
+        "--tokenizer",
+        default="ViT-B-16",
         help="open_clip model name to derive tokenizer from (default: ViT-B-32). "
-             "All standard CLIP models use the same SimpleTokenizer, so the model "
-             "name only affects SigLIP variants.",
+        "All standard CLIP models use the same SimpleTokenizer, so the model "
+        "name only affects SigLIP variants.",
     )
     parser.add_argument(
-        "--context-length", type=int, default=77,
+        "--context-length",
+        type=int,
+        default=77,
         help="Token sequence length (default: 77, standard for all CLIP models)",
     )
     parser.add_argument(
-        "--workers", type=int, default=min(32, os.cpu_count() or 1),
+        "--workers",
+        type=int,
+        default=min(32, os.cpu_count() or 1),
         help="Parallel worker processes (default: min(32, CPU count))",
     )
     parser.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Overwrite existing output shards",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Parse shards and count samples without writing output",
     )
     args = parser.parse_args()
@@ -229,13 +247,22 @@ def main() -> None:
     print()
 
     work = [
-        (tar, args.output_dir, args.tokenizer, args.context_length, args.dry_run, args.force)
+        (
+            tar,
+            args.output_dir,
+            args.tokenizer,
+            args.context_length,
+            args.dry_run,
+            args.force,
+        )
         for tar in all_tars
     ]
 
     n_ok = n_skip = n_fail = 0
     with Pool(processes=args.workers) as pool:
-        for i, (tar, ok, msg) in enumerate(pool.imap_unordered(_process_shard, work), 1):
+        for i, (tar, ok, msg) in enumerate(
+            pool.imap_unordered(_process_shard, work), 1
+        ):
             name = os.path.basename(tar)
             if not ok:
                 n_fail += 1
@@ -245,7 +272,9 @@ def main() -> None:
             else:
                 n_ok += 1
                 if i % max(1, len(work) // 20) == 0 or i == len(work):
-                    print(f"  [{i:>{len(str(len(work)))}}/{len(work)}] done  {name}  — {msg}")
+                    print(
+                        f"  [{i:>{len(str(len(work)))}}/{len(work)}] done  {name}  — {msg}"
+                    )
 
     print(f"\nDone — created: {n_ok}  skipped: {n_skip}  failed: {n_fail}")
     if n_fail:

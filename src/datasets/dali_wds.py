@@ -57,14 +57,20 @@ def _expand_paths(pattern: Union[str, Sequence[str]]) -> list[str]:
     """
     if isinstance(pattern, (list, tuple)):
         return sorted(str(p) for p in pattern)
+    import glob
+
     try:
         import braceexpand
 
-        return sorted(braceexpand.braceexpand(pattern))
+        expanded = list(braceexpand.braceexpand(pattern))
+        # braceexpand silently returns the input unchanged when it can't expand
+        # zero-padded ranges like {0000..0575} — fall through to glob in that case
+        if len(expanded) > 1 or (len(expanded) == 1 and expanded[0] != pattern):
+            return sorted(expanded)
     except ImportError:
-        import glob
+        pass
 
-        return sorted(glob.glob(pattern))
+    return sorted(glob.glob(pattern))
 
 
 def _find_index_paths(paths: list[str]) -> list[str] | None:
