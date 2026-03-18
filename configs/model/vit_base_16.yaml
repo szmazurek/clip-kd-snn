@@ -6,3 +6,9 @@ pretrained: null
 # Teacher fields (populated in experiment configs or via CLI override)
 teacher_name: null
 teacher_checkpoint: null
+
+# torch.compile: fuses CUDA kernels to reduce launch overhead (~20-40% throughput gain)
+# compile_mode: "default" | "reduce-overhead" | "max-autotune"
+#   reduce-overhead is recommended for training; avoid max-autotune in multi-GPU (DDP timeout risk)
+compile: false
+compile_mode: "reduce-overhead"

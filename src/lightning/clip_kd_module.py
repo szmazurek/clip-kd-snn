@@ -51,6 +51,14 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         # Build teacher architecture (weights loaded in setup())
         self.teacher = build_teacher_model(cfg)
 
+        if cfg.model.get("compile", False):
+            mode = cfg.model.get("compile_mode", "reduce-overhead")
+            self.student.model = torch.compile(self.student.model, mode=mode)
+
+        if cfg.model.get("compile_teacher", False):
+            mode = cfg.model.get("compile_mode", "reduce-overhead")
+            self.teacher.model = torch.compile(self.teacher.model, mode=mode)
+
         # Embedding dimensions
         self.s_dim = get_embed_dim(cfg.model.name)
         self.t_dim = get_embed_dim(cfg.model.teacher_name)

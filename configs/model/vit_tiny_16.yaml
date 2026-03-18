@@ -6,3 +6,11 @@ pretrained: null
 # Teacher: ViT-B/16 (set teacher_checkpoint before training)
 teacher_name: "ViT-B-16"
 teacher_checkpoint: ???
+
+# torch.compile: fuses CUDA kernels to reduce launch overhead (~20-40% throughput gain)
+# compile_mode: "default" | "reduce-overhead" | "max-autotune"
+#   reduce-overhead is recommended for training; avoid max-autotune in multi-GPU (DDP timeout risk)
+compile: true
+compile_mode: "reduce-overhead"
+# compile_teacher: separately compile the frozen teacher (larger model, higher warmup cost)
+compile_teacher: true

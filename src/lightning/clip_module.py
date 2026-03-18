@@ -39,6 +39,11 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
         self.student, self.preprocess_train, self.preprocess_val = build_student_model(
             cfg
         )
+
+        if cfg.model.get("compile", False):
+            mode = cfg.model.get("compile_mode", "reduce-overhead")
+            self.student.model = torch.compile(self.student.model, mode=mode)
+
         self.loss_fn = CLIPInfoNCELoss()
 
     # ------------------------------------------------------------------
