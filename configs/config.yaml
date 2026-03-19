@@ -5,11 +5,12 @@ defaults:
   - training: default
   - _self_
 
-exp_name: run  # override per experiment (configs/experiment/) or via CLI
+exp_name: run          # override per experiment (configs/experiment/) or via CLI: exp_name=my_ablation
+run_base_dir: outputs  # base dir for all runs; override via CLI: run_base_dir=/scratch/mydir
 
 hydra:
   run:
-    dir: outputs/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
+    dir: ${run_base_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
   sweep:
-    dir: outputs/multirun/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
+    dir: ${run_base_dir}/multirun/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
     subdir: ${hydra.job.num}

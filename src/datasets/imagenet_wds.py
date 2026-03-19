@@ -35,7 +35,7 @@ def build_imagenet_wds(
         raise FileNotFoundError(f"No .tar shards found in {wds_dir}")
 
     dataset = (
-        wds.WebDataset(shards, shardshuffle=False)
+        wds.WebDataset(shards, shardshuffle=False, nodesplitter=wds.split_by_node)
         .decode("pil")
         .to_tuple("jpg;webp", "cls")
         .map_tuple(transform, lambda x: x)

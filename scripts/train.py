@@ -42,6 +42,36 @@ from src.lightning.clip_module import CLIPModule
 from src.models.factory import build_student_model
 
 
+class _Tee:
+    """Duplicates writes to both the original stream and a log file."""
+
+    def __init__(self, stream, log_path: str):
+        self._stream = stream
+        self._fh = open(log_path, "a", buffering=1)
+
+    def write(self, data):
+        self._stream.write(data)
+        self._fh.write(data)
+
+    def flush(self):
+        self._stream.flush()
+        self._fh.flush()
+
+    def isatty(self):
+        return False  # tqdm uses static (newline-per-update) mode — cleaner in log files
+
+    def fileno(self):
+        return self._stream.fileno()
+
+
+def _setup_stdout_capture(output_dir: str) -> None:
+    rank = int(os.environ.get("LOCAL_RANK", os.environ.get("RANK", 0)))
+    log_name = "stdout.log" if rank == 0 else f"stdout_rank{rank}.log"
+    log_path = os.path.join(output_dir, log_name)
+    sys.stdout = _Tee(sys.__stdout__, log_path)
+    sys.stderr = _Tee(sys.__stderr__, log_path)
+
+
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     L.seed_everything(cfg.training.seed, workers=True)
@@ -72,6 +102,7 @@ def main(cfg: DictConfig) -> None:
 
     # Resolve paths inside this run's Hydra output dir so each run is self-contained
     output_dir = HydraConfig.get().runtime.output_dir
+    _setup_stdout_capture(output_dir)
     ckpt_dir = os.path.join(output_dir, "checkpoints")
     log_dir = os.path.join(output_dir, "logs")
 
@@ -79,11 +110,11 @@ def main(cfg: DictConfig) -> None:
     callbacks = [
         LogitScaleMonitor(),
         LearningRateMonitor(logging_interval="step"),
-        # Best-model checkpoint: tracks val/imagenet/top1, keeps top-3 + last
+        # Best-model checkpoint: tracks val_imagenet_top1, keeps top-3 + last
         ModelCheckpoint(
             dirpath=ckpt_dir,
-            filename="best-epoch={epoch:03d}-top1={val/imagenet/top1:.4f}",
-            monitor="val/imagenet/top1",
+            filename="best-epoch={epoch:03d}-top1={val_imagenet_top1:.4f}",
+            monitor="val_imagenet_top1",
             mode="max",
             save_top_k=3,
             save_last=True,  # always writes checkpoints/last.ckpt
