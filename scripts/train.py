@@ -58,7 +58,9 @@ class _Tee:
         self._fh.flush()
 
     def isatty(self):
-        return False  # tqdm uses static (newline-per-update) mode — cleaner in log files
+        return (
+            False  # tqdm uses static (newline-per-update) mode — cleaner in log files
+        )
 
     def fileno(self):
         return self._stream.fileno()

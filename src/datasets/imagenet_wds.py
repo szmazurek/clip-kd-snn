@@ -12,14 +12,23 @@ from typing import Callable
 
 import webdataset as wds
 
+from .cc3m_wds import SizedWebDataset
+
 _VARIANTS = {"imagenet", "imagenet_v2", "imagenet_r", "imagenet_sketch"}
+
+_VARIANT_SIZES: dict[str, int] = {
+    "imagenet":        37_200,
+    "imagenet_v2":     10_000,
+    "imagenet_r":      30_000,
+    "imagenet_sketch": 30_100,
+}
 
 
 def build_imagenet_wds(
     wds_dir: str,
     transform: Callable,
     variant: str = "imagenet",
-) -> wds.WebDataset:
+) -> SizedWebDataset:
     """Return a WebDataset iterable for an ImageNet WDS split directory.
 
     Args:
@@ -34,11 +43,14 @@ def build_imagenet_wds(
     if not shards:
         raise FileNotFoundError(f"No .tar shards found in {wds_dir}")
 
-    dataset = (
-        wds.WebDataset(shards, shardshuffle=False, nodesplitter=wds.split_by_node)
+    n_samples = _VARIANT_SIZES[variant]
+    pipeline = (
+        wds.WebDataset(shards, shardshuffle=False, nodesplitter=wds.split_by_node, empty_check=False)
         .decode("pil")
         .to_tuple("jpg;webp", "cls")
         .map_tuple(transform, lambda x: x)
     )
-    dataset.variant = variant
-    return dataset
+    pipeline.nsamples = n_samples
+    sized = SizedWebDataset(pipeline)
+    sized.variant = variant
+    return sized

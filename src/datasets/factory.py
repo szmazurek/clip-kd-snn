@@ -297,15 +297,15 @@ class CLIPDataModule(L.LightningDataModule):
         eval_workers = self.cfg.training.get("eval_workers", 4)
         loaders = []
         for dataset in self.val_datasets.values():
-            is_iterable = isinstance(dataset, IterableDataset)
             loaders.append(
                 DataLoader(
                     dataset,
                     batch_size=self.cfg.training.get("eval_batch_size", 256),
                     shuffle=False,
-                    num_workers=1 if is_iterable else eval_workers,
+                    num_workers=eval_workers,
+                    prefetch_factor=2 if eval_workers > 0 else None,
                     pin_memory=True,
-                    persistent_workers=False if is_iterable else (eval_workers > 0),
+                    persistent_workers=False,
                 )
             )
         return loaders
