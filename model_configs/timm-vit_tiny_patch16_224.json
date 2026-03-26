@@ -10,8 +10,8 @@
     "text_cfg": {
         "context_length": 77,
         "vocab_size": 49408,
-        "width": 256,
-        "heads": 4,
+        "width": 384,
+        "heads": 6,
         "layers": 12
     }
 }

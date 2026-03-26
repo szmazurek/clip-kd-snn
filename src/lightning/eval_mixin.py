@@ -91,15 +91,23 @@ class ZeroShotEvalMixin:
         counts[dl_name] += images.size(0)
 
 
-    def _log_imagenet_metrics(self, top1_acc: dict, top5_acc: dict, counts: dict, prefix: str) -> None:
-        for name in top1_acc:
-            n = counts[name]
+    def _log_imagenet_metrics(self, names: list, top1_acc: dict, top5_acc: dict, counts: dict, prefix: str) -> None:
+        import torch.distributed as dist
+        for name in names:
+            if not name.startswith("imagenet"):
+                continue
+            n_t    = torch.tensor(counts[name],    dtype=torch.float64, device=self.device)
+            top1_t = torch.tensor(top1_acc[name],  dtype=torch.float64, device=self.device)
+            top5_t = torch.tensor(top5_acc[name],  dtype=torch.float64, device=self.device)
+            if dist.is_available() and dist.is_initialized():
+                dist.all_reduce(n_t,    op=dist.ReduceOp.SUM)
+                dist.all_reduce(top1_t, op=dist.ReduceOp.SUM)
+                dist.all_reduce(top5_t, op=dist.ReduceOp.SUM)
+            n = n_t.item()
             if n == 0:
                 continue
-            top1 = top1_acc[name] / n
-            top5 = top5_acc[name] / n
-            self.log(f"{prefix}_{name}_top1", top1, sync_dist=True, prog_bar=True)
-            self.log(f"{prefix}_{name}_top5", top5, sync_dist=True, prog_bar=False)
+            self.log(f"{prefix}_{name}_top1", top1_t.item() / n, sync_dist=False, prog_bar=True)
+            self.log(f"{prefix}_{name}_top5", top5_t.item() / n, sync_dist=False, prog_bar=False)
 
     # ------------------------------------------------------------------
     # Validation hooks
@@ -125,7 +133,8 @@ class ZeroShotEvalMixin:
         # Retrieval datasets are handled in on_validation_epoch_end
 
     def on_validation_epoch_end(self) -> None:
-        self._log_imagenet_metrics(self._val_top1, self._val_top5, self._val_n, prefix="val")
+        names = self._get_val_dataset_names()
+        self._log_imagenet_metrics(names, self._val_top1, self._val_top5, self._val_n, prefix="val")
 
     # ------------------------------------------------------------------
     # Test hooks (identical logic, different metric prefix)
@@ -150,4 +159,5 @@ class ZeroShotEvalMixin:
             )
 
     def on_test_epoch_end(self) -> None:
-        self._log_imagenet_metrics(self._test_top1, self._test_top5, self._test_n, prefix="test")
+        names = self._get_val_dataset_names()
+        self._log_imagenet_metrics(names, self._test_top1, self._test_top5, self._test_n, prefix="test")

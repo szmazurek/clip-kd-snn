@@ -42,6 +42,31 @@ from src.lightning.clip_module import CLIPModule
 from src.models.factory import build_student_model
 
 
+def _print_model_summary(module: L.LightningModule, model_name: str) -> None:
+    model = module.student.model
+    if hasattr(model, "_orig_mod"):  # unwrap torch.compile
+        model = model._orig_mod
+
+    def _M(params) -> str:
+        return f"{sum(p.numel() for p in params) / 1e6:.1f} M"
+
+    visual_params = list(model.visual.parameters())
+    total_params = list(model.parameters())
+    logit_params = [model.logit_scale]
+    text_params = [
+        p for p in total_params
+        if not any(p is q for q in visual_params + logit_params)
+    ]
+
+    sep = "=" * 48
+    print(sep)
+    print(f"  Model: {model_name}")
+    print(f"  Visual encoder : {_M(visual_params)}")
+    print(f"  Text encoder   : {_M(text_params)}")
+    print(f"  Total          : {_M(total_params)}")
+    print(sep)
+
+
 class _Tee:
     """Duplicates writes to both the original stream and a log file."""
 
@@ -163,6 +188,7 @@ def main(cfg: DictConfig) -> None:
 
     # Log full config
     if trainer.is_global_zero:
+        _print_model_summary(module, cfg.model.name)
         print(OmegaConf.to_yaml(cfg))
 
     trainer.fit(module, datamodule=datamodule)
