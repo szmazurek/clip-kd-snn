@@ -46,7 +46,6 @@ def _make_dummy_cfg(student_name="ViT-B-16", teacher_name="ViT-B-16"):
                 "alpha_task": 1.0,
                 "alpha_ckd": 1.0,
                 "alpha_icl": 1.0,
-                "alpha_cross_kd": 1.0,
                 "alpha_fd": 1.0,
                 "alpha_gd": 0.0,
                 "alpha_afd": 0.0,

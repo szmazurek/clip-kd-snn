@@ -1,10 +1,6 @@
 """CompositeLoss: combines CLIP task loss with weighted distillation losses.
 
 L_total = alpha_task * L_CLIP + sum(alpha_i * L_KD_i)
-
-Loss call order is fixed to ensure ICLLoss populates cross-modal logits in
-KDFeatures before CrossKDLoss reads them:
-    task -> ckd -> icl -> cross_kd -> fd -> gd -> afd
 """
 from __future__ import annotations
 
@@ -16,8 +12,7 @@ from torch import nn
 from .base import CLIPDistillationLoss, KDFeatures
 
 
-# Fixed call order — ICL must precede CrossKD
-_LOSS_ORDER = ["task", "ckd", "icl", "cross_kd", "fd", "gd", "afd"]
+_LOSS_ORDER = ["task", "ckd", "icl", "fd", "gd", "afd"]
 
 
 class CompositeLoss(nn.Module):
@@ -46,8 +41,7 @@ class CompositeLoss(nn.Module):
         """Compute total loss and per-component loss dict.
 
         Args:
-            features: KDFeatures (may be mutated by ICLLoss to add
-                      cross-modal logits for CrossKDLoss).
+            features: KDFeatures.
 
         Returns:
             Tuple of:

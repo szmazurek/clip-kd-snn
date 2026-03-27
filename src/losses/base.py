@@ -1,8 +1,7 @@
 """Base classes and shared data structures for CLIP-KD losses."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import torch
 from torch import nn
@@ -28,10 +27,6 @@ class KDFeatures:
         s_logit_scale: Scalar logit scale for student (exp of learned param).
         t_logit_scale: Scalar logit scale for teacher.
         labels: (N,) Ground-truth contrastive labels (torch.arange(N)).
-        cross_logits_img2txt: (N, N) Student-image × teacher-text logits.
-                              Populated by ICLLoss for downstream CrossKDLoss.
-        cross_logits_txt2img: (N, N) Student-text × teacher-image logits.
-                              Populated by ICLLoss for downstream CrossKDLoss.
     """
     s_img: torch.Tensor
     s_txt: torch.Tensor
@@ -42,8 +37,6 @@ class KDFeatures:
     s_logit_scale: torch.Tensor
     t_logit_scale: torch.Tensor
     labels: torch.Tensor
-    cross_logits_img2txt: Optional[torch.Tensor] = None
-    cross_logits_txt2img: Optional[torch.Tensor] = None
 
 
 class CLIPDistillationLoss(nn.Module):

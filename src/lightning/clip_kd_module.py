@@ -1,7 +1,7 @@
 """Lightning module for CLIP-KD (knowledge distillation) training.
 
 The student is trained to match the teacher via a configurable composite
-loss (FD, CKD, ICL, CrossKD, GD, AFD). The teacher is frozen throughout.
+loss (FD, CKD, ICL, GD, AFD). The teacher is frozen throughout.
 
 Key design choices (matching src/training/main_kd.py):
   - Teacher checkpoint loaded in setup() after Lightning moves models to device.

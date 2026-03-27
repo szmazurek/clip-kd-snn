@@ -14,9 +14,9 @@ eval_batch_size: 256
 eval_workers: 8
 # DALI equivalent of torch DataLoader's num_workers — uses threads, not forked processes.
 # Heavy work (decode/augment) runs on the GPU, so fewer threads are needed.
-dali_threads: 8
+dali_threads: 12
 # DALI equivalent of torch DataLoader's prefetch_factor.
-prefetch_queue_depth: 2
+prefetch_queue_depth: 8
 # PyTorch Lightning precision string
 precision: "bf16-mixed"
 # mask_ratio > 0 activates MFD (Masked Feature Distillation)

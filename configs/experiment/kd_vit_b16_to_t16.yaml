@@ -1,6 +1,6 @@
 # @package _global_
 # ViT-B/16 → ViT-T/16 knowledge distillation on CC3M
-# Unified loss: FD + CKD + ICL + CrossKD
+# Unified loss: FD + CRD + ICL
 defaults:
   - override /model: vit_tiny_16
   - override /loss: unified

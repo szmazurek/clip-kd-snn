@@ -22,7 +22,7 @@ from src.losses.clip_loss import CLIPInfoNCELoss
 from src.losses.crd import CKDLoss
 from src.losses.fd import FDLoss
 from src.losses.gd import GDLoss, get_grad
-from src.losses.icl import ICLLoss, CrossKDLoss
+from src.losses.icl import ICLLoss
 from src.losses.afd import AFDLoss
 from src.losses.composite import CompositeLoss
 
@@ -123,35 +123,10 @@ class TestICLLoss:
         loss = loss_fn(feats)
         assert loss.shape == ()
 
-    def test_populates_cross_logits(self):
-        """ICLLoss must populate cross_logits for CrossKDLoss downstream."""
-        loss_fn = ICLLoss()
-        feats = _make_features()
-        assert feats.cross_logits_img2txt is None
-        _ = loss_fn(feats)
-        assert feats.cross_logits_img2txt is not None
-        assert feats.cross_logits_img2txt.shape == (B, B)
-
     def test_cross_logit_scale_is_learnable(self):
         loss_fn = ICLLoss()
         params = list(loss_fn.parameters())
         assert len(params) == 1, "ICLLoss should have exactly one learnable param"
-
-
-class TestCrossKDLoss:
-    def test_requires_icl_to_run_first(self):
-        loss_fn = CrossKDLoss()
-        feats = _make_features()
-        with pytest.raises(AssertionError, match="ICLLoss must run before"):
-            _ = loss_fn(feats)
-
-    def test_output_is_scalar(self):
-        icl = ICLLoss()
-        cross_kd = CrossKDLoss()
-        feats = _make_features()
-        _ = icl(feats)
-        loss = cross_kd(feats)
-        assert loss.shape == ()
 
 
 class TestFDLoss:

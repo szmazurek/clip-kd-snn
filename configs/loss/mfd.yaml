@@ -4,7 +4,6 @@
 alpha_task: 1.0
 alpha_ckd: 0.0
 alpha_icl: 0.0
-alpha_cross_kd: 0.0
 alpha_fd: 0.0
 alpha_mfd: 1.0
 alpha_gd: 0.0

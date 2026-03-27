@@ -14,7 +14,7 @@ from .composite import CompositeLoss
 from .crd import CKDLoss
 from .fd import FDLoss
 from .gd import GDLoss
-from .icl import CrossKDLoss, ICLLoss
+from .icl import ICLLoss
 from .mfd import MFDLoss
 
 
@@ -50,11 +50,7 @@ def build_loss(
     # CKD / CRD (paper: CRD, code: CKD)
     _add("ckd", "alpha_ckd", CKDLoss())
 
-    # ICL — must come before cross_kd
     _add("icl", "alpha_icl", ICLLoss())
-
-    # CrossKD — depends on ICL populating KDFeatures.cross_logits_*
-    _add("cross_kd", "alpha_cross_kd", CrossKDLoss())
 
     # FD or MFD (same loss formulation; MFD uses mask_ratio > 0 at model level)
     alpha_fd = float(cfg.get("alpha_fd", 0.0))

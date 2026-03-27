@@ -31,7 +31,7 @@ shuffle_buffer: 5000
 
 seed: 42
 
-imagenet_wds_dir: "imagenet-v1-wds/test"
-imagenet_v2_wds_dir: "imagenet-v2-wds/test"
-imagenet_r_wds_dir: "imagenet-r-wds/test"
-imagenet_sketch_wds_dir: "imagenet-sketch-wds/test"
+imagenet_wds_dir: "${oc.env:STORAGE}/imagenet-v1-wds/test"
+imagenet_v2_wds_dir: "${oc.env:STORAGE}/imagenet-v2-wds/test"
+imagenet_r_wds_dir: "${oc.env:STORAGE}/imagenet-r-wds/test"
+imagenet_sketch_wds_dir: "${oc.env:STORAGE}/imagenet-sketch-wds/test"

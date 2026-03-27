@@ -4,7 +4,7 @@ from .composite import CompositeLoss
 from .crd import CKDLoss
 from .fd import FDLoss
 from .gd import GDLoss
-from .icl import CrossKDLoss, ICLLoss
+from .icl import ICLLoss
 from .mfd import MFDLoss
 from .afd import AFDLoss
 from .factory import build_loss
@@ -15,7 +15,6 @@ __all__ = [
     "CLIPInfoNCELoss",
     "CKDLoss",
     "ICLLoss",
-    "CrossKDLoss",
     "FDLoss",
     "MFDLoss",
     "GDLoss",
