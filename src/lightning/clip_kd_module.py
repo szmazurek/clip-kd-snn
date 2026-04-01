@@ -147,9 +147,12 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         # ln_final, text_projection). Only copies keys with matching shapes so
         # the same config flag works even when student/teacher differ in visual dim.
         if self.cfg.model.get("init_student_text_from_teacher", False):
+            # Strip _orig_mod. from keys: teacher may be compiled, state_dict keys include it.
             teacher_sd = {
-                k: v for k, v in self.teacher.model.state_dict().items()
-                if not k.startswith("visual") and k != "logit_scale"
+                k.replace("_orig_mod.", ""): v
+                for k, v in self.teacher.model.state_dict().items()
+                if not k.replace("_orig_mod.", "").startswith("visual")
+                and k.replace("_orig_mod.", "") != "logit_scale"
             }
             student_sd = self.student.model.state_dict()
             compatible = {
@@ -165,7 +168,9 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         # optimizer — no changes to configure_optimizers() needed.
         if self.cfg.model.get("freeze_student_text_encoder", False):
             for name, param in self.student.model.named_parameters():
-                if not name.startswith("visual") and name != "logit_scale":
+                # Strip _orig_mod. prefix added by torch.compile before checking role.
+                clean = name.replace("_orig_mod.", "")
+                if not clean.startswith("visual") and clean != "logit_scale":
                     param.requires_grad_(False)
 
     # ------------------------------------------------------------------
