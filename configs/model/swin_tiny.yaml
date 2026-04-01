@@ -1,6 +1,7 @@
 # Swin-T: 27.9M params
 name: "timm-swin_tiny_patch4_window7_224"
 pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer). Ignored when training.resume_ckpt is set.
 
 teacher_name: "ViT-B-16"
 teacher_checkpoint: ???

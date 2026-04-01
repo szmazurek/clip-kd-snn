@@ -1,6 +1,7 @@
 # ResNet-18 (timm): 11.4M params
 name: "timm_resnet18"
 pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer). Ignored when training.resume_ckpt is set.
 
 teacher_name: "RN101"
 teacher_checkpoint: ???

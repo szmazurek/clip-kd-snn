@@ -1,6 +1,7 @@
 # ResNet-50: 38.3M params, embed_dim=1024
 name: "RN50"
 pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer). Ignored when training.resume_ckpt is set.
 
 teacher_name: "RN101"
 teacher_checkpoint: ???

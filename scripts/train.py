@@ -32,6 +32,7 @@ from hydra.core.hydra_config import HydraConfig
 from lightning.pytorch.callbacks import TQDMProgressBar
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.plugins.io import TorchCheckpointIO
 from omegaconf import DictConfig, OmegaConf
 
 from src.datasets.factory import CLIPDataModule
@@ -40,6 +41,21 @@ from src.lightning.callbacks import LogitScaleMonitor
 from src.lightning.clip_kd_module import CLIPKDModule
 from src.lightning.clip_module import CLIPModule
 from src.models.factory import build_student_model
+
+
+class _TrustedCheckpointIO(TorchCheckpointIO):
+    """TorchCheckpointIO with weights_only=False.
+
+    Lightning >= 2.4 defaults to weights_only=True, which rejects OmegaConf types
+    (DictConfig, ContainerMetadata, …) stored by save_hyperparameters(). These
+    checkpoints are produced by this codebase and are trusted, so we opt out of
+    the restriction rather than chasing every OmegaConf type through add_safe_globals.
+    """
+
+    def load_checkpoint(self, path, map_location=None, **kwargs):
+        import torch
+
+        return torch.load(path, map_location=map_location, weights_only=False)
 
 
 def _print_model_summary(module: L.LightningModule, model_name: str) -> None:
@@ -54,8 +70,7 @@ def _print_model_summary(module: L.LightningModule, model_name: str) -> None:
     total_params = list(model.parameters())
     logit_params = [model.logit_scale]
     text_params = [
-        p for p in total_params
-        if not any(p is q for q in visual_params + logit_params)
+        p for p in total_params if not any(p is q for q in visual_params + logit_params)
     ]
 
     sep = "=" * 48
@@ -168,6 +183,7 @@ def main(cfg: DictConfig) -> None:
         precision=cfg.training.precision,
         callbacks=callbacks,
         logger=logger,
+        plugins=[_TrustedCheckpointIO()],
         devices="auto",
         accelerator="auto",
         strategy="auto",
@@ -191,7 +207,8 @@ def main(cfg: DictConfig) -> None:
         _print_model_summary(module, cfg.model.name)
         print(OmegaConf.to_yaml(cfg))
 
-    trainer.fit(module, datamodule=datamodule)
+    resume_ckpt = cfg.training.get("resume_ckpt") or None
+    trainer.fit(module, datamodule=datamodule, ckpt_path=resume_ckpt)
 
 
 if __name__ == "__main__":

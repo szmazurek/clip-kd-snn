@@ -2,6 +2,7 @@
 # Primary student architecture in CLIP-KD paper experiments
 name: "timm-vit_tiny_patch16_224"
 pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer). Ignored when training.resume_ckpt is set.
 
 # Teacher: ViT-B/16 (set teacher_checkpoint before training)
 teacher_name: "ViT-B-16"

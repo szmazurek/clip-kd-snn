@@ -1,6 +1,7 @@
 # ViT-L/14: 304M params, embed_dim=768. Used as teacher with LAION-400M weights.
 name: "ViT-L-14"
 pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer). Ignored when training.resume_ckpt is set.
 
 teacher_name: null
 teacher_checkpoint: null

@@ -2,10 +2,23 @@
 # Used as teacher in the primary CLIP-KD experiments
 name: "ViT-B-16"
 pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer). Ignored when training.resume_ckpt is set.
 
 # Teacher fields (populated in experiment configs or via CLI override)
 teacher_name: null
 teacher_checkpoint: null
+# teacher_pretrained: open_clip pretrained tag (e.g. "laion2b_s34b_b88k").
+# When set, open_clip downloads/loads teacher weights directly in build_teacher_model().
+# Mutually exclusive with teacher_checkpoint.
+teacher_pretrained: null
+
+# Student text encoder control
+# init_student_text_from_teacher: copy teacher text-encoder weights into student at setup().
+#   Requires architecturally identical text encoders (same model family).
+init_student_text_from_teacher: false
+# freeze_student_text_encoder: freeze all student text encoder parameters during training.
+#   Implies those params are excluded from the optimizer automatically.
+freeze_student_text_encoder: false
 
 # torch.compile: fuses CUDA kernels to reduce launch overhead (~20-40% throughput gain)
 # compile_mode: "default" | "reduce-overhead" | "max-autotune"

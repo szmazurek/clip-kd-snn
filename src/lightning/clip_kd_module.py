@@ -78,18 +78,80 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
     # ------------------------------------------------------------------
 
     def setup(self, stage: Optional[str] = None) -> None:
-        """Load teacher weights and freeze all teacher parameters."""
+        """Load teacher weights, freeze teacher, and optionally init/freeze student text encoder."""
+        # Load teacher from a checkpoint file only when teacher_pretrained is not set
+        # (teacher_pretrained means open_clip already loaded the weights in build_teacher_model)
         checkpoint_path = self.cfg.model.get("teacher_checkpoint")
-        if checkpoint_path:
-            sd = torch.load(checkpoint_path, map_location="cpu")
+        teacher_pretrained = self.cfg.model.get("teacher_pretrained")
+        if teacher_pretrained:
+            print(
+                f"[Teacher] weights loaded via open_clip pretrained tag: "
+                f"'{self.cfg.model.teacher_name}' / '{teacher_pretrained}'"
+            )
+        elif checkpoint_path:
+            print(f"[Teacher] loading weights from checkpoint: {checkpoint_path}")
+            sd = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
             # Handle DDP-wrapped checkpoints
             if next(iter(sd)).startswith("module"):
                 sd = {k[len("module."):]: v for k, v in sd.items()}
             self.teacher.load_state_dict(sd)
+            print(f"[Teacher] checkpoint loaded successfully")
+        else:
+            print("[Teacher] WARNING: no checkpoint or pretrained tag specified — random weights")
 
         self.teacher.eval()
         for p in self.teacher.parameters():
             p.requires_grad_(False)
+
+        # Load student from a checkpoint file (optional).
+        # Skipped when resume_ckpt is set — the full Lightning checkpoint already contains student weights.
+        student_checkpoint_path = self.cfg.model.get("student_checkpoint")
+        resume_ckpt = self.cfg.training.get("resume_ckpt")
+        if student_checkpoint_path and not resume_ckpt:
+            print(f"[Student] loading weights from checkpoint: {student_checkpoint_path}")
+            # weights_only=False is intentional: Lightning .ckpt files embed OmegaConf DictConfig
+            # objects (from save_hyperparameters) which are blocked by weights_only=True.
+            # These are user-produced checkpoints from this codebase and are trusted.
+            ckpt = torch.load(student_checkpoint_path, map_location="cpu", weights_only=False)
+            # Support both raw state dicts (.pt) and Lightning .ckpt files.
+            if "state_dict" in ckpt:
+                # Lightning checkpoint: extract student weights and strip the "student." prefix.
+                raw = ckpt["state_dict"]
+                sd = {k[len("student."):]: v for k, v in raw.items() if k.startswith("student.")}
+            else:
+                sd = ckpt
+            # Handle DDP-wrapped checkpoints (keys prefixed with "module.")
+            if sd and next(iter(sd)).startswith("module."):
+                sd = {k[len("module."):]: v for k, v in sd.items()}
+            self.student.load_state_dict(sd)
+            print("[Student] checkpoint loaded successfully")
+
+        # Optionally copy teacher text-encoder weights into the student.
+        # Copies all parameters that are not part of the visual encoder and not
+        # logit_scale (i.e. token_embedding, positional_embedding, transformer,
+        # ln_final, text_projection). Only copies keys with matching shapes so
+        # the same config flag works even when student/teacher differ in visual dim.
+        if self.cfg.model.get("init_student_text_from_teacher", False):
+            teacher_sd = {
+                k: v for k, v in self.teacher.model.state_dict().items()
+                if not k.startswith("visual") and k != "logit_scale"
+            }
+            student_sd = self.student.model.state_dict()
+            compatible = {
+                k: v for k, v in teacher_sd.items()
+                if k in student_sd and student_sd[k].shape == v.shape
+            }
+            student_sd.update(compatible)
+            self.student.model.load_state_dict(student_sd)
+
+        # Optionally freeze the student text encoder.
+        # Frozen params have requires_grad=False so exclude_weight_decay() (which
+        # already filters on requires_grad) will automatically omit them from the
+        # optimizer — no changes to configure_optimizers() needed.
+        if self.cfg.model.get("freeze_student_text_encoder", False):
+            for name, param in self.student.model.named_parameters():
+                if not name.startswith("visual") and name != "logit_scale":
+                    param.requires_grad_(False)
 
     # ------------------------------------------------------------------
     # Forward (used during inference / eval)

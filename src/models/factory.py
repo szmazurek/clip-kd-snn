@@ -45,18 +45,23 @@ def build_student_model(
 
 
 def build_teacher_model(cfg: DictConfig) -> nn.Module:
-    """Create teacher CLIP model (architecture only; weights loaded separately).
+    """Create teacher CLIP model, optionally loading pretrained weights via open_clip.
 
-    Teacher weights are loaded in CLIPKDModule.setup() after Lightning has
-    moved the model to the target device, to avoid CPU-GPU copy timing issues.
+    If cfg.model.teacher_pretrained is set, open_clip downloads/loads the weights
+    directly (no separate checkpoint file needed). Otherwise the model is created
+    with random weights and CLIPKDModule.setup() will load from teacher_checkpoint.
 
     Args:
-        cfg: Hydra config with cfg.model.teacher_name.
+        cfg: Hydra config with cfg.model.teacher_name and optional
+             cfg.model.teacher_pretrained.
 
     Returns:
-        Teacher model with random weights (to be replaced in setup()).
+        Teacher model (weights either random or open_clip pretrained).
     """
-    model, _, _ = open_clip.create_model_and_transforms(cfg.model.teacher_name)
+    pretrained = cfg.model.get("teacher_pretrained", None)
+    model, _, _ = open_clip.create_model_and_transforms(
+        cfg.model.teacher_name, pretrained=pretrained
+    )
     return CLIPWrapper(model)
 
 

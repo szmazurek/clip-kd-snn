@@ -17,10 +17,10 @@ from .cc3m_wds import SizedWebDataset
 _VARIANTS = {"imagenet", "imagenet_v2", "imagenet_r", "imagenet_sketch"}
 
 _VARIANT_SIZES: dict[str, int] = {
-    "imagenet":        37_200,
+    "imagenet":        50_000,   # canonical 50K val set
     "imagenet_v2":     10_000,
     "imagenet_r":      30_000,
-    "imagenet_sketch": 30_100,
+    "imagenet_sketch": 50_889,   # full ImageNet-Sketch dataset
 }
 
 

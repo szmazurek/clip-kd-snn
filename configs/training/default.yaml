@@ -29,3 +29,6 @@ zeroshot_frequency: 1
 save_every_n_epochs: 5
 # Do fast dev run (train and validate on a single batch) to check for bugs before launching full training
 fast_dev_run: false
+# Full checkpoint resume: restores model weights + optimizer + scheduler + epoch/step.
+# Overrides student_checkpoint if both are set.
+resume_ckpt: null
