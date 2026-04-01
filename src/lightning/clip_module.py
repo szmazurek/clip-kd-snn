@@ -32,7 +32,7 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
 
     def __init__(self, cfg: DictConfig, tokenizer: Callable) -> None:
         super().__init__()
-        self.save_hyperparameters(ignore=["tokenizer"])
+        self.save_hyperparameters(ignore=["tokenizer", "cfg"])
         self.cfg = cfg
         self.tokenizer = tokenizer
 

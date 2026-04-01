@@ -41,7 +41,7 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
 
     def __init__(self, cfg: DictConfig, tokenizer: Callable) -> None:
         super().__init__()
-        self.save_hyperparameters(ignore=["tokenizer"])
+        self.save_hyperparameters(ignore=["tokenizer", "cfg"])
         self.cfg = cfg
         self.tokenizer = tokenizer
 
@@ -54,10 +54,6 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         if cfg.model.get("compile", False):
             mode = cfg.model.get("compile_mode", "reduce-overhead")
             self.student.model = torch.compile(self.student.model, mode=mode)
-
-        if cfg.model.get("compile_teacher", False):
-            mode = cfg.model.get("compile_mode", "reduce-overhead")
-            self.teacher.model = torch.compile(self.teacher.model, mode=mode)
 
         # Embedding dimensions
         self.s_dim = get_embed_dim(cfg.model.name)
@@ -90,10 +86,25 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
             )
         elif checkpoint_path:
             print(f"[Teacher] loading weights from checkpoint: {checkpoint_path}")
-            sd = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-            # Handle DDP-wrapped checkpoints
-            if next(iter(sd)).startswith("module"):
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            # Support Lightning .ckpt files (have a nested "state_dict" key).
+            if "state_dict" in ckpt:
+                raw = ckpt["state_dict"]
+                # Strip Lightning module prefix ("student." from baseline/KD runs).
+                sd = raw
+                for prefix in ("student.", "teacher."):
+                    candidate = {k[len(prefix):]: v for k, v in raw.items() if k.startswith(prefix)}
+                    if candidate:
+                        sd = candidate
+                        break
+            else:
+                sd = ckpt
+            # Handle DDP-wrapped checkpoints (keys prefixed with "module.").
+            if sd and next(iter(sd)).startswith("module."):
                 sd = {k[len("module."):]: v for k, v in sd.items()}
+            # Strip torch.compile wrapper prefix: checkpoint may have been saved from a compiled
+            # model, but we load into the uncompiled teacher here (compilation happens after).
+            sd = {k.replace("_orig_mod.", ""): v for k, v in sd.items()}
             self.teacher.load_state_dict(sd)
             print(f"[Teacher] checkpoint loaded successfully")
         else:
@@ -103,15 +114,19 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         for p in self.teacher.parameters():
             p.requires_grad_(False)
 
+        # Compile teacher after weights are loaded so torch.compile sees the final weights
+        # and the checkpoint keys (without _orig_mod.) match the uncompiled model.
+        if self.cfg.model.get("compile_teacher", False):
+            mode = self.cfg.model.get("compile_mode", "reduce-overhead")
+            self.teacher.model = torch.compile(self.teacher.model, mode=mode)
+
         # Load student from a checkpoint file (optional).
         # Skipped when resume_ckpt is set — the full Lightning checkpoint already contains student weights.
         student_checkpoint_path = self.cfg.model.get("student_checkpoint")
         resume_ckpt = self.cfg.training.get("resume_ckpt")
         if student_checkpoint_path and not resume_ckpt:
             print(f"[Student] loading weights from checkpoint: {student_checkpoint_path}")
-            # weights_only=False is intentional: Lightning .ckpt files embed OmegaConf DictConfig
-            # objects (from save_hyperparameters) which are blocked by weights_only=True.
-            # These are user-produced checkpoints from this codebase and are trusted.
+            # weights_only=False: user-produced checkpoints from this codebase are trusted.
             ckpt = torch.load(student_checkpoint_path, map_location="cpu", weights_only=False)
             # Support both raw state dicts (.pt) and Lightning .ckpt files.
             if "state_dict" in ckpt:
