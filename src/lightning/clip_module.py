@@ -42,7 +42,11 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
 
         if cfg.model.get("compile", False):
             mode = cfg.model.get("compile_mode", "reduce-overhead")
-            self.student.model = torch.compile(self.student.model, mode=mode)
+            if hasattr(self.student.model, "text_model"):
+                # MSViT: only compile the ANN text encoder; SNN backbone is incompatible with compile
+                self.student.model.text_model = torch.compile(self.student.model.text_model, mode=mode)
+            else:
+                self.student.model = torch.compile(self.student.model, mode=mode)
 
         self.loss_fn = CLIPInfoNCELoss()
 

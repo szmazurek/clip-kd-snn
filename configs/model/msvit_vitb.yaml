@@ -1,0 +1,29 @@
+# MSViT image encoder (MSFormer_10_512, 512-dim) + ViT-B/16 text encoder (512-dim)
+# No projection needed: visual and text spaces have the same dimension.
+name: "MSViT-ViT-B-16"
+student_checkpoint: null
+pretrained: null
+
+# Text encoder used on the ANN side (open_clip model name, pretrained=None)
+text_encoder_name: "ViT-B-16"
+
+# Teacher fields (unused for baseline; populated in KD experiment configs)
+teacher_name: null
+teacher_checkpoint: null
+teacher_pretrained: null
+
+# Student text encoder control (not applicable to MSViT; kept for schema compatibility)
+init_student_text_from_teacher: false
+freeze_student_text_encoder: false
+
+# torch.compile applies only to the ANN text encoder (text_model); the SNN backbone
+# is left uncompiled as tracing through spikingjelly LIF nodes is not yet stable.
+compile: true
+
+# SNN hyperparameters
+snn:
+  T: 4                 # SNN simulation timesteps (input frame repeated T times)
+  neuron_type: "lif"   # Neuron model: lif | plif | nlif | glif
+  v_threshold: 1.0     # Spike threshold voltage
+  tau: 2.0             # Membrane time constant
+  backend: "torch"     # Computation backend: torch | triton | cupy

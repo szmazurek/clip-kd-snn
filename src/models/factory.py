@@ -2,16 +2,18 @@
 
 Thin wrappers around open_clip.create_model_and_transforms(). The heavy
 lifting (architecture definitions, weight loading) is handled by open_clip.
+
+MSViT models (name prefix "MSViT-") are handled by a separate builder that
+combines an MSFormer spiking image encoder with an open_clip text encoder.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Callable
 
 import open_clip
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
 from .clip_model import CLIPWrapper
@@ -21,11 +23,84 @@ _MODEL_CONFIGS_DIR = Path(__file__).parent.parent.parent / "model_configs"
 if _MODEL_CONFIGS_DIR.is_dir():
     open_clip.add_model_config(_MODEL_CONFIGS_DIR)
 
+# ---------------------------------------------------------------------------
+# MSViT model registry
+# ---------------------------------------------------------------------------
+
+_MSVIT_PREFIX = "MSViT-"
+
+# Maps MSViT model name → effective CLIP embedding dimension (= text encoder dim)
+_MSVIT_EMBED_DIMS: dict[str, int] = {
+    "MSViT-ViT-B-16": 512,
+    "MSViT-ViT-T-16": 256,
+}
+
+_MSVIT_VISUAL_DIM = 512  # MSFormer_10_512 always produces 512-dim image features
+
+
+def _is_msvit(name: str) -> bool:
+    return name.startswith(_MSVIT_PREFIX)
+
+
+def _build_msvit_student_model(
+    cfg: DictConfig,
+) -> tuple[nn.Module, Callable, Callable]:
+    """Create student model with MSViT image encoder + open_clip text encoder.
+
+    Args:
+        cfg: Hydra config.  Reads:
+            cfg.model.text_encoder_name  – open_clip model name for the text side.
+            cfg.model.snn.*              – SNN hyperparameters (T, neuron_type, …).
+
+    Returns:
+        Tuple of (CLIPWrapper(MSViTCLIPModel), preprocess_train, preprocess_val).
+    """
+    from .msvit_clip import MSViTCLIPModel
+    from .visual_encoders.msformer import MSFormer_10_512, SNNParams
+
+    # ---- SNN config -------------------------------------------------------
+    snn_cfg = cfg.model.get("snn", {})
+    # OmegaConf DictConfig → plain dict for .get() calls
+    if isinstance(snn_cfg, DictConfig):
+        snn_cfg = OmegaConf.to_container(snn_cfg, resolve=True)
+
+    snn = SNNParams(
+        neuron_type=snn_cfg.get("neuron_type", "lif"),
+        v_threshold=float(snn_cfg.get("v_threshold", 1.0)),
+        tau=float(snn_cfg.get("tau", 2.0)),
+        backend=snn_cfg.get("backend", "torch"),
+    )
+    T = int(snn_cfg.get("T", 4))
+
+    # ---- Text encoder (open_clip) -----------------------------------------
+    text_encoder_name = cfg.model.get("text_encoder_name", "ViT-B-16")
+    text_clip, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
+        text_encoder_name, pretrained=None
+    )
+
+    text_embed_dim = open_clip.get_model_config(text_encoder_name)["embed_dim"]
+
+    # ---- Visual encoder (MSFormer) ----------------------------------------
+    visual = MSFormer_10_512(T=T, snn=snn)
+
+    # ---- Assemble CLIP model ----------------------------------------------
+    model = MSViTCLIPModel(
+        visual=visual,
+        text_model=text_clip,
+        visual_embed_dim=_MSVIT_VISUAL_DIM,
+        text_embed_dim=text_embed_dim,
+        T=T,
+    )
+    return CLIPWrapper(model), preprocess_train, preprocess_val
+
 
 def build_student_model(
     cfg: DictConfig,
 ) -> tuple[nn.Module, Callable, Callable]:
     """Create student CLIP model with train/eval image transforms.
+
+    Dispatches to the MSViT builder when cfg.model.name starts with "MSViT-",
+    otherwise delegates to open_clip.
 
     The student is always initialised from scratch (pretrained=None)
     unless cfg.model.pretrained is explicitly set.
@@ -36,6 +111,9 @@ def build_student_model(
     Returns:
         Tuple of (model, preprocess_train, preprocess_val).
     """
+    if _is_msvit(cfg.model.name):
+        return _build_msvit_student_model(cfg)
+
     pretrained = cfg.model.get("pretrained", None)
     model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
         cfg.model.name,
@@ -66,19 +144,24 @@ def build_teacher_model(cfg: DictConfig) -> nn.Module:
 
 
 def get_embed_dim(model_name: str) -> int:
-    """Return the embedding dimension for a given open_clip model name.
+    """Return the CLIP embedding dimension for a given model name.
 
-    Reads from open_clip's model config registry.
+    For MSViT models (prefix "MSViT-") returns the effective CLIP space
+    dimension (text encoder dim) from the hardcoded registry.  For all other
+    models reads from open_clip's config registry.
 
     Args:
-        model_name: open_clip model name, e.g. "ViT-B-16".
+        model_name: Model name, e.g. "ViT-B-16" or "MSViT-ViT-B-16".
 
     Returns:
-        Embedding dimension (e.g. 512 for ViT-B-16).
+        Embedding dimension.
 
     Raises:
-        ValueError: If the model name is not found in the registry.
+        ValueError: If the model name is not found in any registry.
     """
+    if model_name in _MSVIT_EMBED_DIMS:
+        return _MSVIT_EMBED_DIMS[model_name]
+
     cfg = open_clip.get_model_config(model_name)
     if cfg is None:
         raise ValueError(

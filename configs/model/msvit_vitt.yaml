@@ -1,0 +1,28 @@
+# MSViT image encoder (MSFormer_10_512, 512-dim) + ViT-T/16 text encoder (256-dim)
+# A linear projection (512 -> 256) is added automatically inside MSViTCLIPModel.
+name: "MSViT-ViT-T-16"
+student_checkpoint: null
+pretrained: null
+
+# Text encoder used on the ANN side (open_clip model name, pretrained=None)
+text_encoder_name: "timm-vit_tiny_patch16_224"
+
+# Teacher fields (unused for baseline; populated in KD experiment configs)
+teacher_name: null
+teacher_checkpoint: null
+teacher_pretrained: null
+
+# Student text encoder control (not applicable to MSViT; kept for schema compatibility)
+init_student_text_from_teacher: false
+freeze_student_text_encoder: false
+
+# torch.compile applies only to the ANN text encoder (text_model); see msvit_vitb.yaml
+compile: true
+
+# SNN hyperparameters
+snn:
+  T: 4                 # SNN simulation timesteps (input frame repeated T times)
+  neuron_type: "lif"   # Neuron model: lif | plif | nlif | glif
+  v_threshold: 1.0     # Spike threshold voltage
+  tau: 2.0             # Membrane time constant
+  backend: "torch"     # Computation backend: torch | triton (cupy not used)

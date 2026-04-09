@@ -16,7 +16,7 @@
 #         model.freeze_student_text_encoder=true
 defaults:
   - override /model: vit_base_16
-  - override /loss: clip_only
+  - override /loss: unified
   - override /dataset: cc3m_12m
 
 exp_name: kd_vit_b16_to_b16_cc3m12m
@@ -25,10 +25,10 @@ exp_name: kd_vit_b16_to_b16_cc3m12m
 model:
   # dfn2b / datacomp_xl_s13b_b90k were trained with QuickGELU → use ViT-B-16-quickgelu
   # laion2b_s34b_b88k was trained with standard GELU → use ViT-B-16
-  teacher_name: "ViT-B-16-quickgelu"
+  teacher_name: "ViT-B-16"
   teacher_pretrained: "dfn2b"               # best public ViT-B/16 on open_clip
-  init_student_text_from_teacher: false       # set true to copy teacher text encoder → student
-  freeze_student_text_encoder: false          # set true to keep student text encoder frozen
+  init_student_text_from_teacher: true       # set true to copy teacher text encoder → student
+  freeze_student_text_encoder: true          # set true to keep student text encoder frozen
 
 dataset:
   cc3m_root: ???

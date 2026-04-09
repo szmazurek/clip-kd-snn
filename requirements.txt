@@ -30,3 +30,9 @@ ftfy
 regex
 tqdm
 numpy
+
+# Spiking neural networks (MSViT image encoder)
+spikingjelly>=0.0.0.0.14
+
+# Tensor rearrangement (used in MSViT layers)
+einops>=0.6

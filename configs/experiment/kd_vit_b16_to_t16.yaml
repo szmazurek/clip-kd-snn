@@ -9,7 +9,7 @@ defaults:
 exp_name: kd_vit_b16_to_t16
 
 model:
-  teacher_checkpoint: /data/checkpoints/ViT-B-16-laion400m_e31-d9920b53.pt
+  teacher_checkpoint: /net/storage/pr3/plgrid/plggwie/plgmazurekagh/results_clip_kd/teacher_pretrained_vit_b_16/checkpoints/last.ckpt
 
 dataset:
   train_root: /data/cc3m/images

@@ -18,7 +18,7 @@ dali_threads: 12
 # DALI equivalent of torch DataLoader's prefetch_factor.
 prefetch_queue_depth: 8
 # PyTorch Lightning precision string
-precision: "bf16-mixed"
+precision: "16-true"
 # mask_ratio > 0 activates MFD (Masked Feature Distillation)
 mask_ratio: 0.0
 grad_clip_norm: 1.0

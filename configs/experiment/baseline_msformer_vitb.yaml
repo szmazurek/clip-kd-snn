@@ -1,0 +1,24 @@
+# @package _global_
+# Baseline CLIP training with MSViT (MSFormer_10_512) image encoder and ViT-B/16 text encoder.
+# No knowledge distillation — trains purely with the standard CLIP InfoNCE loss.
+# Visual embedding dim: 512 (no projection needed; matches ViT-B/16 text dim).
+defaults:
+  - override /model: msvit_vitb
+  - override /loss: clip_only
+  - override /dataset: cc3m
+  - _self_
+
+exp_name: baseline_msformer_vitb
+
+dataset:
+  train_root: /data/cc3m/images
+  train_csv: /data/cc3m/train.tsv
+  # Optional: uncomment to enable zero-shot evaluation
+  # imagenet_val_root: /data/imagenet/val
+  # mscoco_root: /data/mscoco
+
+training:
+  epochs: 32
+  batch_size: 32
+  warmup_steps: 10000
+  lr: 1.0e-3
