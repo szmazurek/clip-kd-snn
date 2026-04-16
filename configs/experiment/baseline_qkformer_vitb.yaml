@@ -1,14 +1,14 @@
 # @package _global_
-# Baseline CLIP training with MSViT (MSFormer_10_512) image encoder and ViT-B/16 text encoder.
+# Baseline CLIP training with QKFormer (QKFormer_10_512) image encoder and ViT-B/16 text encoder.
 # No knowledge distillation — trains purely with the standard CLIP InfoNCE loss.
 # Visual embedding dim: 512 (no projection needed; matches ViT-B/16 text dim).
 defaults:
-  - override /model: msvit_vitb
+  - override /model: qkformer_vitb
   - override /loss: clip_only
   - override /dataset: cc3m
   - _self_
 
-exp_name: baseline_msformer_vitb
+exp_name: baseline_qkformer_vitb
 
 dataset:
   train_root: /data/cc3m/images

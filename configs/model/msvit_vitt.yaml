@@ -16,7 +16,6 @@ teacher_pretrained: null
 init_student_text_from_teacher: false
 freeze_student_text_encoder: false
 
-# torch.compile applies only to the ANN text encoder (text_model); see msvit_vitb.yaml
 compile: true
 
 # SNN hyperparameters

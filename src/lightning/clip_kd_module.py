@@ -13,6 +13,7 @@ Key design choices (matching src/training/main_kd.py):
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Callable, Optional
 
@@ -54,10 +55,26 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         if cfg.model.get("compile", False):
             mode = cfg.model.get("compile_mode", "reduce-overhead")
             if hasattr(self.student.model, "text_model"):
-                # MSViT: only compile the ANN text encoder; SNN backbone is incompatible with compile
+                # MSViT: compile only the ANN text encoder by default.
                 self.student.model.text_model = torch.compile(self.student.model.text_model, mode=mode)
             else:
                 self.student.model = torch.compile(self.student.model, mode=mode)
+
+        # Optionally compile the SNN visual encoder separately (off by default).
+        # IMPORTANT: encode_image() calls self.visual.forward_features() directly,
+        # not self.visual() — so we must compile forward_features as a function,
+        # not wrap the whole module. Compiling the module would instrument .forward()
+        # which is never called in the CLIP path, giving zero speedup.
+        if cfg.model.get("compile_snn", False):
+            snn_mode = cfg.model.get("compile_snn_mode", "reduce-overhead")
+            torch._logging.set_logs(dynamo=logging.DEBUG, graph_breaks=True, recompiles=True)
+            visual = self.student.model.visual
+            visual.forward_features = torch.compile(
+                visual.forward_features,
+                mode=snn_mode,
+            )
+            print(f"[compile] SNN visual.forward_features compiled — mode={snn_mode!r}  "
+                  f"(compilation fires on first forward call)")
 
         # Embedding dimensions
         self.s_dim = get_embed_dim(cfg.model.name)

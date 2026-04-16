@@ -1,12 +1,14 @@
-"""CLIP-compatible model combining MSViT image encoder with an open_clip text encoder.
+"""CLIP-compatible model combining QKFormer image encoder with an open_clip text encoder.
 
-MSViTCLIPModel provides the same interface as open_clip.CLIP so that it can be
+QKFormerCLIPModel provides the same interface as open_clip.CLIP so that it can be
 wrapped transparently by CLIPWrapper and used with the existing CLIPModule /
 CLIPKDModule training pipelines.
 
-Image encoder: hierarchical_spiking_transformer (MSFormer_10_512)
+Image encoder: hierarchical_spiking_transformer (QKFormer_10_512)
     - Always outputs 512-dim embeddings before any projection.
-    - SNN neuron states are reset before every encode_image call.
+    - SNN neuron states are reset before every encode_image call via
+      reset_lif_states() — this correctly handles our custom LIFNode which
+      is not a spikingjelly MemoryModule (unlike functional.reset_net).
     - Input images are tiled T times along a new temporal dimension to create
       the SNN input sequence; outputs are averaged across T.
 
@@ -25,12 +27,15 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from spikingjelly.activation_based import functional
 from torch import Tensor
 
+from spikingjelly.activation_based.base import MemoryModule as _SJMemoryModule
 
-class MSViTCLIPModel(nn.Module):
-    """CLIP-compatible model with a spiking MSViT image encoder.
+from src.models.visual_encoders.lif_node import reset_lif_states
+
+
+class QKFormerCLIPModel(nn.Module):
+    """CLIP-compatible model with a spiking QKFormer image encoder.
 
     Satisfies the interface expected by CLIPWrapper:
         encode_image(image, normalize=False) -> Tensor[B, D]
@@ -39,12 +44,12 @@ class MSViTCLIPModel(nn.Module):
         forward(image, text) -> (img_norm, txt_norm, logit_scale_exp)
 
     Args:
-        visual: MSFormer backbone (hierarchical_spiking_transformer with
+        visual: QKFormer backbone (hierarchical_spiking_transformer with
                 num_classes=0).  Its forward_features() returns [T, B, D].
         text_model: Full open_clip CLIP instance used as text encoder.
                     Only encode_text() is called on it.
         visual_embed_dim: Channel dimension output by the visual backbone (512
-                          for MSFormer_10_512).
+                          for QKFormer_10_512).
         text_embed_dim: Embedding dimension of the text encoder (512 for ViT-B,
                         256 for ViT-T).
         T: SNN simulation timesteps.  The same input frame is repeated T times.
@@ -78,9 +83,10 @@ class MSViTCLIPModel(nn.Module):
     # ------------------------------------------------------------------
     # Encode helpers
     # ------------------------------------------------------------------
+
     @torch.cuda.nvtx.range("ImageEncode")
     def encode_image(self, image: Tensor, normalize: bool = False) -> Tensor:
-        """Encode a batch of images to embeddings via MSViT.
+        """Encode a batch of images to embeddings via QKFormer.
 
         Args:
             image: [B, C, H, W] image tensor.
@@ -89,14 +95,11 @@ class MSViTCLIPModel(nn.Module):
         Returns:
             [B, D] image feature tensor where D = text_embed_dim.
         """
-        # Reset SNN neuron membrane potentials before each batch.
-        # NOTE: when self.visual is wrapped by torch.compile it becomes an
-        # OptimizedModule. functional.reset_net iterates .modules() to find
-        # MemoryModule instances — this traversal should still reach the inner
-        # LIFNodes via _orig_mod, but if voltages bleed across batches (symptom:
-        # loss diverges immediately after the first step), change this to:
-        #   functional.reset_net(getattr(self.visual, "_orig_mod", self.visual))
-        functional.reset_net(self.visual)
+        # Reset SNN neuron states before each batch.
+        reset_lif_states(self.visual)  # custom LIFNode: inplace (CUDA graph safe)
+        for m in getattr(self.visual, "_orig_mod", self.visual).modules():
+            if isinstance(m, _SJMemoryModule):
+                m.reset()  # spikingjelly neurons (sj_lif, plif, glif)
 
         # Replicate input across T timesteps: [T, B, C, H, W]
         x = image.unsqueeze(0).repeat(self.T, 1, 1, 1, 1)
@@ -126,6 +129,7 @@ class MSViTCLIPModel(nn.Module):
     # ------------------------------------------------------------------
     # Forward (used by CLIPWrapper in non-distill mode)
     # ------------------------------------------------------------------
+
     @torch.cuda.nvtx.range("Forward")
     def forward(self, image: Tensor, text: Tensor):
         """Standard CLIP forward returning L2-normalised features.

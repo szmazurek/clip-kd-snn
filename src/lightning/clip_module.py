@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Callable
 
@@ -43,10 +44,40 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
         if cfg.model.get("compile", False):
             mode = cfg.model.get("compile_mode", "reduce-overhead")
             if hasattr(self.student.model, "text_model"):
-                # MSViT: only compile the ANN text encoder; SNN backbone is incompatible with compile
-                self.student.model.text_model = torch.compile(self.student.model.text_model, mode=mode)
+                # MSViT: compile only the ANN text encoder by default.
+                self.student.model.text_model = torch.compile(
+                    self.student.model.text_model, mode=mode
+                )
+                print(
+                    f"[compile] text_model wrapped — mode={mode!r}  "
+                    f"type={type(self.student.model.text_model).__name__}"
+                )
             else:
                 self.student.model = torch.compile(self.student.model, mode=mode)
+                print(
+                    f"[compile] full model wrapped — mode={mode!r}  "
+                    f"type={type(self.student.model).__name__}"
+                )
+
+        # Optionally compile the SNN visual encoder separately (off by default).
+        # IMPORTANT: encode_image() calls self.visual.forward_features() directly,
+        # not self.visual() — so we must compile forward_features as a function,
+        # not wrap the whole module. Compiling the module would instrument .forward()
+        # which is never called in the CLIP path, giving zero speedup.
+        if cfg.model.get("compile_snn", False):
+            snn_mode = cfg.model.get("compile_snn_mode", "reduce-overhead")
+            # Enable dynamo/graph-break logging programmatically so it fires on
+            # the first forward pass even if TORCH_LOGS was not set before import.
+            # torch._logging.set_logs(dynamo=logging.DEBUG, graph_breaks=True, recompiles=True)
+            visual = self.student.model.visual
+            visual.forward_features = torch.compile(
+                visual.forward_features,
+                mode=snn_mode,
+            )
+            print(
+                f"[compile] SNN visual.forward_features compiled — mode={snn_mode!r}  "
+                f"(compilation fires on first forward call)"
+            )
 
         self.loss_fn = CLIPInfoNCELoss()
 
@@ -100,6 +131,8 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
         if not loss.isfinite():
             self.log("train_nan_skip", 1.0, on_step=True, sync_dist=False)
             return None
+
+        # Diagnostics
         self.log(
             "train_loss",
             loss,
@@ -108,6 +141,17 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
             sync_dist=True,
             prog_bar=True,
         )
+        self.log("logit_scale", logit_scale.log(), on_step=True, prog_bar=True)
+        self.log("img_norm", img_feats.norm(dim=-1).mean(), on_step=True, prog_bar=True)
+        self.log("txt_norm", txt_feats.norm(dim=-1).mean(), on_step=True, prog_bar=True)
+        self.log(
+            "img_txt_cosine",
+            (img_feats * txt_feats).sum(dim=-1).mean(),
+            on_step=True,
+            prog_bar=True,
+        )
+        opt = self.optimizers()
+        self.log("lr", opt.param_groups[0]["lr"], on_step=True, prog_bar=True)
         return loss
 
     def on_after_backward(self) -> None:
