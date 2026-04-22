@@ -42,6 +42,10 @@ from src.lightning.clip_kd_module import CLIPKDModule
 from src.lightning.clip_module import CLIPModule
 from src.models.factory import build_student_model
 
+import torch
+
+torch._dynamo.config.optimize_ddp = False
+
 
 class _TrustedCheckpointIO(TorchCheckpointIO):
     """TorchCheckpointIO with weights_only=False.
@@ -186,7 +190,7 @@ def main(cfg: DictConfig) -> None:
         plugins=[_TrustedCheckpointIO()],
         devices="auto",
         accelerator="auto",
-        strategy="auto",
+        strategy="ddp_find_unused_parameters_true",
         # Run validation every N epochs (reuses zeroshot_frequency config key)
         check_val_every_n_epoch=cfg.training.get("zeroshot_frequency", 1),
         num_sanity_val_steps=0,

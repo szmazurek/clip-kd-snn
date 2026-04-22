@@ -65,17 +65,19 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
         # not wrap the whole module. Compiling the module would instrument .forward()
         # which is never called in the CLIP path, giving zero speedup.
         if cfg.model.get("compile_snn", False):
-            snn_mode = cfg.model.get("compile_snn_mode", "reduce-overhead")
-            # Enable dynamo/graph-break logging programmatically so it fires on
-            # the first forward pass even if TORCH_LOGS was not set before import.
-            # torch._logging.set_logs(dynamo=logging.DEBUG, graph_breaks=True, recompiles=True)
-            visual = self.student.model.visual
-            visual.forward_features = torch.compile(
-                visual.forward_features,
+            snn_mode = cfg.model.get("compile_snn_mode", "default")
+            # Compile the whole visual module (not the bound method forward_features).
+            # torch.compile wraps __call__, which correctly handles train→eval mode
+            # switches via guard invalidation. Compiling a bound method skips that
+            # machinery and causes inductor to fail on the first validation recompile
+            # with "AttributeError: 'int' object has no attribute 'meta'".
+            # encode_image() now calls self.visual(image) which routes through __call__.
+            self.student.model.visual = torch.compile(
+                self.student.model.visual,
                 mode=snn_mode,
             )
             print(
-                f"[compile] SNN visual.forward_features compiled — mode={snn_mode!r}  "
+                f"[compile] SNN visual module compiled — mode={snn_mode!r}  "
                 f"(compilation fires on first forward call)"
             )
 

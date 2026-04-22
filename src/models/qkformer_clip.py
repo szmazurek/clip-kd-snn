@@ -6,9 +6,8 @@ CLIPKDModule training pipelines.
 
 Image encoder: hierarchical_spiking_transformer (QKFormer_10_512)
     - Always outputs 512-dim embeddings before any projection.
-    - SNN neuron states are reset before every encode_image call via
-      reset_lif_states() — this correctly handles our custom LIFNode which
-      is not a spikingjelly MemoryModule (unlike functional.reset_net).
+    - LIFNode is stateless: membrane potential is initialised fresh on every
+      forward call, so no explicit reset is needed between batches.
     - Input images are tiled T times along a new temporal dimension to create
       the SNN input sequence; outputs are averaged across T.
 
@@ -29,9 +28,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from spikingjelly.activation_based.base import MemoryModule as _SJMemoryModule
-
-from src.models.visual_encoders.lif_node import reset_lif_states
 
 
 class QKFormerCLIPModel(nn.Module):
@@ -95,18 +91,10 @@ class QKFormerCLIPModel(nn.Module):
         Returns:
             [B, D] image feature tensor where D = text_embed_dim.
         """
-        # Reset SNN neuron states before each batch.
-        reset_lif_states(self.visual)  # custom LIFNode: inplace (CUDA graph safe)
-        for m in getattr(self.visual, "_orig_mod", self.visual).modules():
-            if isinstance(m, _SJMemoryModule):
-                m.reset()  # spikingjelly neurons (sj_lif, plif, glif)
-
-        # Replicate input across T timesteps: [T, B, C, H, W]
-        x = image.unsqueeze(0).repeat(self.T, 1, 1, 1, 1)
-        # Run backbone → [T, B, visual_embed_dim]
-        x = self.visual.forward_features(x)
-        # Average over time → [B, visual_embed_dim]
-        x = x.mean(0)
+        # visual.forward() handles tiling + forward_features + temporal mean
+        # internally (equivalent to unsqueeze/repeat + forward_features + mean(0))
+        # and is the correct compilation target when compile_snn=True.
+        x = self.visual(image)
 
         if self.visual_proj is not None:
             x = self.visual_proj(x)

@@ -74,7 +74,6 @@ def _build_lif_node(snn: SNNParams, v_threshold: Optional[float] = None) -> nn.M
             detach_reset=True,
             surrogate="sigmoid",
             surrogate_alpha=4.0,
-            step_mode="m",
         )
     # Fallback to spikingjelly for neuron types not yet ported.
     from spikingjelly.activation_based import neuron as _sj_neuron

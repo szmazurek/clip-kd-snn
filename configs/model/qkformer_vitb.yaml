@@ -22,7 +22,7 @@ compile_snn_mode: "default"  # torch.compile mode for the SNN block
 
 # SNN hyperparameters
 snn:
-  T: 1                 # SNN simulation timesteps (input frame repeated T times)
+  T: 2                # SNN simulation timesteps (input frame repeated T times)
   neuron_type: "lif"   # Neuron model: lif | sj_lif | plif | nlif | glif
   v_threshold: 1.0     # Spike threshold voltage
   tau: 2.0             # Membrane time constant

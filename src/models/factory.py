@@ -95,6 +95,10 @@ def _build_qkformer_student_model(
     text_clip, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
         text_encoder_name, pretrained=None
     )
+    # Drop the open_clip visual encoder — only encode_text() is used here, and
+    # keeping text_clip.visual would register its parameters without ever touching
+    # them in the forward pass, causing DDP to raise unused-parameter errors.
+    del text_clip.visual
 
     text_embed_dim = open_clip.get_model_config(text_encoder_name)["embed_dim"]
 
@@ -147,6 +151,8 @@ def _build_msvit_student_model(
     text_clip, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
         text_encoder_name, pretrained=None
     )
+    # Drop the open_clip visual encoder — only encode_text() is used here.
+    del text_clip.visual
 
     text_embed_dim = open_clip.get_model_config(text_encoder_name)["embed_dim"]
 

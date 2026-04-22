@@ -21,7 +21,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
 
-from ..models.visual_encoders.lif_node import reset_lif_states
 from ..utils.misc import cosine_lr_lambda, exclude_weight_decay
 
 
@@ -53,20 +52,13 @@ class ImageNetClassificationModule(L.LightningModule):
         self.warmup_steps = warmup_steps
 
         if compile_snn:
-            # Compile only forward_features (the spiking backbone), not the full model.
-            # This mirrors the CLIP pipeline approach: a smaller, cleaner graph with fewer
-            # graph breaks means torch.compile can fuse more ops.
-            #
-            # "default" mode does kernel fusion without CUDA Graphs. CUDA Graphs
-            # ("reduce-overhead") require a completely break-free graph — the surrogate
-            # gradient autograd.Function subclasses in spikingjelly break the graph during
-            # training, so reduce-overhead would capture one tiny CUDA Graph per fragment
-            # and the capture overhead would exceed any speedup.
-            model.forward_features = torch.compile(
-                model.forward_features,
+            # Compile the whole model module. Compiling __call__ (not a bound method)
+            # handles train→eval mode switching correctly via guard invalidation.
+            # "default" mode does kernel fusion without CUDA Graphs.
+            model = torch.compile(
+                model,
                 fullgraph=False,
                 mode=compile_mode,
-                dynamic=False,
             )
         self.model = model
         self._model_for_reset = model
@@ -77,10 +69,6 @@ class ImageNetClassificationModule(L.LightningModule):
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         images, labels = batch
-        # Reset SNN neuron membrane potentials before each batch.
-        # Must target the original (unwrapped) model when compile is active —
-        # see NOTE in __init__.
-        reset_lif_states(self._model_for_reset)
         logits = self.model(images)
         loss = F.cross_entropy(logits, labels)
         self.log(
@@ -98,8 +86,6 @@ class ImageNetClassificationModule(L.LightningModule):
     # ------------------------------------------------------------------
 
     def validation_step(self, batch, batch_idx: int) -> None:
-        reset_lif_states(self._model_for_reset)
-
         images, labels = batch
         logits = self.model(images)
         loss = F.cross_entropy(logits, labels)
