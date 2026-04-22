@@ -9,3 +9,7 @@ test_hfd*.sh
 *.nsys-rep
 checkpoints/
 checkpoints/*.ckpt
+compile_optimization_vis/*
+MSViT/
+QKFormer/
+spikingjelly/
