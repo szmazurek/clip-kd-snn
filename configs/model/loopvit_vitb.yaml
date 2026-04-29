@@ -1,0 +1,32 @@
+# LoopViT-ViT-B-16: recurrent ViT-B/16-derived image encoder + open_clip ViT-B/16 text encoder
+# Visual: embed_dim=768, 12 heads, 1-layer loop core, 12 recurrent steps, no step embeddings, no exit gate
+# Text: ViT-B/16 (embed_dim=512); a linear projection maps visual 768 → 512
+name: "LoopViT-ViT-B-16"
+text_encoder_name: "ViT-B-16"
+
+# LoopViT architecture (mirrors train_imagenet_loopvit.py baseline config)
+embed_dim: 768
+num_heads: 12
+loop_core_depth: 1
+mlp_ratio: 4.0
+dropout: 0.0
+max_loop_steps: 12
+min_loop_steps: 1
+add_step_embeddings: false
+use_exit_gate: false
+
+pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer)
+
+# Teacher fields (populated in experiment configs or via CLI override)
+teacher_name: null
+teacher_checkpoint: null
+teacher_pretrained: null
+
+# Student text encoder control
+init_student_text_from_teacher: false
+freeze_student_text_encoder: false
+
+# torch.compile
+compile: true
+compile_mode: "reduce-overhead"

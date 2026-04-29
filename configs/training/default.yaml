@@ -7,7 +7,7 @@ weight_decay: 0.1
 warmup_steps: 10000
 epochs: 32
 # Per-GPU batch size; total = batch_size * num_gpus (paper uses 1024 total on 8 GPUs)
-batch_size: 256
+batch_size: 128
 # Accumulate gradients over N steps before an optimizer update.
 # Effective batch = batch_size * num_gpus * accumulate_grad_batches.
 # Set > 1 to reduce per-step peak VRAM without changing the effective batch size
@@ -23,7 +23,7 @@ dali_threads: 12
 # DALI equivalent of torch DataLoader's prefetch_factor.
 prefetch_queue_depth: 8
 # PyTorch Lightning precision string
-precision: "16-mixed"
+precision: "bf16-mixed"
 # mask_ratio > 0 activates MFD (Masked Feature Distillation)
 mask_ratio: 0.0
 grad_clip_norm: 1.0

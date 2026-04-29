@@ -1,0 +1,37 @@
+defaults:
+  - _self_
+  - overrides: none
+
+training:
+  train_batch: 256
+  test_batch: 64
+  dataset: imagenet
+  patch_size: 16
+  img_size: 224
+  num_classes: 1000
+  epochs: 300
+  augmentations: true
+  dataset_path_train: null
+  dataset_path_val: null
+  learning_rate: 1e-3
+  min_learning_rate: 1e-6
+  wegiht_decay: 0.05
+  warmup_epochs: 10
+  max_norm: 1.0
+  ema: true
+  ema_rate: 0.999
+  max_loop_steps: 12
+  min_loop_steps: 1
+  gate_entropy_weight: 0.0
+  loop_penalty_weight: 0.0
+
+model:
+  embed_dim: 768
+  loop_core_depth: 12
+  mlp_ratio: 4.0
+  num_heads: 12
+  dropout: 0.0
+  add_step_embeddings: false
+  use_exit_gate: false
+  gate_threshold: false
+  swiglu: False

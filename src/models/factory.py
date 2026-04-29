@@ -61,6 +61,86 @@ def _is_qkformer(name: str) -> bool:
     return name.startswith(_QKFORMER_PREFIX)
 
 
+# ---------------------------------------------------------------------------
+# LoopViT model registry
+# ---------------------------------------------------------------------------
+
+_LOOPVIT_PREFIX = "LoopViT-"
+
+# Maps LoopViT model name → effective CLIP embedding dimension (= text encoder dim)
+_LOOPVIT_EMBED_DIMS: dict[str, int] = {
+    "LoopViT-ViT-B-16": 512,
+}
+
+
+def _is_loopvit(name: str) -> bool:
+    return name.startswith(_LOOPVIT_PREFIX)
+
+
+def _build_loopvit_student_model(
+    cfg: DictConfig,
+) -> tuple[nn.Module, Callable, Callable]:
+    """Create student model with LoopViT image encoder + open_clip text encoder.
+
+    Args:
+        cfg: Hydra config.  Reads:
+            cfg.model.text_encoder_name  – open_clip model name for the text side.
+            cfg.model.embed_dim          – LoopViT embedding dimension.
+            cfg.model.num_heads          – number of attention heads.
+            cfg.model.loop_core_depth    – transformer depth per loop step.
+            cfg.model.mlp_ratio          – MLP expansion ratio.
+            cfg.model.dropout            – dropout rate.
+            cfg.model.max_loop_steps     – maximum recurrent iterations.
+            cfg.model.min_loop_steps     – minimum recurrent iterations.
+            cfg.model.add_step_embeddings – whether to use per-step embeddings.
+            cfg.model.use_exit_gate      – whether to use dynamic early exit.
+
+    Returns:
+        Tuple of (CLIPWrapper(LoopViTCLIPModel), preprocess_train, preprocess_val).
+    """
+    from .loopvit_clip import LoopViTCLIPModel
+    from .visual_encoders.loopvit import LoopViT
+
+    # ---- Text encoder (open_clip) -----------------------------------------
+    text_encoder_name = cfg.model.get("text_encoder_name", "ViT-B-16")
+    text_clip, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
+        text_encoder_name, pretrained=None
+    )
+    # Drop the open_clip visual encoder — only encode_text() is used here, and
+    # keeping text_clip.visual would register its parameters without ever using
+    # them, causing DDP to raise unused-parameter errors.
+    del text_clip.visual
+
+    text_embed_dim = open_clip.get_model_config(text_encoder_name)["embed_dim"]
+
+    # ---- Visual encoder (LoopViT) -----------------------------------------
+    visual_embed_dim = int(cfg.model.get("embed_dim", 768))
+    visual = LoopViT(
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        num_classes=0,
+        embed_dim=visual_embed_dim,
+        num_heads=int(cfg.model.get("num_heads", 12)),
+        mlp_ratio=float(cfg.model.get("mlp_ratio", 4.0)),
+        dropout=float(cfg.model.get("dropout", 0.0)),
+        loop_core_depth=int(cfg.model.get("loop_core_depth", 1)),
+        max_loop_steps=int(cfg.model.get("max_loop_steps", 12)),
+        min_loop_steps=int(cfg.model.get("min_loop_steps", 1)),
+        add_step_embeddings=bool(cfg.model.get("add_step_embeddings", False)),
+        use_exit_gate=bool(cfg.model.get("use_exit_gate", False)),
+    )
+
+    # ---- Assemble CLIP model ----------------------------------------------
+    model = LoopViTCLIPModel(
+        visual=visual,
+        text_model=text_clip,
+        visual_embed_dim=visual_embed_dim,
+        text_embed_dim=text_embed_dim,
+    )
+    return CLIPWrapper(model), preprocess_train, preprocess_val
+
+
 def _build_qkformer_student_model(
     cfg: DictConfig,
 ) -> tuple[nn.Module, Callable, Callable]:
@@ -191,6 +271,8 @@ def build_student_model(
         return _build_msvit_student_model(cfg)
     if _is_qkformer(cfg.model.name):
         return _build_qkformer_student_model(cfg)
+    if _is_loopvit(cfg.model.name):
+        return _build_loopvit_student_model(cfg)
 
     pretrained = cfg.model.get("pretrained", None)
     model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
@@ -241,6 +323,8 @@ def get_embed_dim(model_name: str) -> int:
         return _MSVIT_EMBED_DIMS[model_name]
     if model_name in _QKFORMER_EMBED_DIMS:
         return _QKFORMER_EMBED_DIMS[model_name]
+    if model_name in _LOOPVIT_EMBED_DIMS:
+        return _LOOPVIT_EMBED_DIMS[model_name]
 
     cfg = open_clip.get_model_config(model_name)
     if cfg is None:

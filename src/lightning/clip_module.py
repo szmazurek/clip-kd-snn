@@ -43,8 +43,13 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
 
         if cfg.model.get("compile", False):
             mode = cfg.model.get("compile_mode", "reduce-overhead")
-            if hasattr(self.student.model, "text_model"):
-                # MSViT: compile only the ANN text encoder by default.
+            is_snn = bool(cfg.model.get("snn", None))
+            if hasattr(self.student.model, "text_model") and is_snn:
+                # SNN custom models (MSViT, QKFormer): encode_image calls
+                # self.visual.forward_features() directly and also calls
+                # functional.reset_net() outside the graph, so the full model
+                # cannot be compiled in one shot.  Compile only the ANN text
+                # encoder; use compile_snn to opt into compiling the visual.
                 self.student.model.text_model = torch.compile(
                     self.student.model.text_model, mode=mode
                 )
@@ -53,6 +58,9 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
                     f"type={type(self.student.model.text_model).__name__}"
                 )
             else:
+                # Baseline open_clip models and non-SNN custom models (e.g.
+                # LoopViT): compile the full model so every op in forward(),
+                # encode_image(), and encode_text() is inside the same graph.
                 self.student.model = torch.compile(self.student.model, mode=mode)
                 print(
                     f"[compile] full model wrapped — mode={mode!r}  "
@@ -130,9 +138,6 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
             labels=labels,
         )
         loss = self.loss_fn(features)
-        if not loss.isfinite():
-            self.log("train_nan_skip", 1.0, on_step=True, sync_dist=False)
-            return None
 
         # Diagnostics
         self.log(
@@ -144,16 +149,6 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
             prog_bar=True,
         )
         self.log("logit_scale", logit_scale.log(), on_step=True, prog_bar=True)
-        self.log("img_norm", img_feats.norm(dim=-1).mean(), on_step=True, prog_bar=True)
-        self.log("txt_norm", txt_feats.norm(dim=-1).mean(), on_step=True, prog_bar=True)
-        self.log(
-            "img_txt_cosine",
-            (img_feats * txt_feats).sum(dim=-1).mean(),
-            on_step=True,
-            prog_bar=True,
-        )
-        opt = self.optimizers()
-        self.log("lr", opt.param_groups[0]["lr"], on_step=True, prog_bar=True)
         return loss
 
     def on_after_backward(self) -> None:

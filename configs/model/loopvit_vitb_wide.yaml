@@ -1,0 +1,32 @@
+# LoopViT-ViT-B-16-wide: 2× wider visual encoder (embed_dim 768→1536)
+# Visual: embed_dim=1536, 24 heads (head_dim=64, same as standard ViT), 1-layer loop core, 12 recurrent steps
+# Text: ViT-B/16 (embed_dim=512); a linear projection maps visual 1536 → 512
+name: "LoopViT-ViT-B-16-wide"
+text_encoder_name: "ViT-B-16"
+
+# LoopViT architecture — 2× wider than loopvit_vitb.yaml
+embed_dim: 1536
+num_heads: 24          # keeps head_dim=64 (standard ViT scaling)
+loop_core_depth: 1
+mlp_ratio: 4.0
+dropout: 0.0
+max_loop_steps: 12
+min_loop_steps: 1
+add_step_embeddings: false
+use_exit_gate: false
+
+pretrained: null
+student_checkpoint: null  # path to a .pt state-dict; loads student weights only (fresh optimizer)
+
+# Teacher fields (populated in experiment configs or via CLI override)
+teacher_name: null
+teacher_checkpoint: null
+teacher_pretrained: null
+
+# Student text encoder control
+init_student_text_from_teacher: false
+freeze_student_text_encoder: false
+
+# torch.compile
+compile: true
+compile_mode: "reduce-overhead"

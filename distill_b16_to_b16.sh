@@ -25,5 +25,4 @@ export TORCHINDUCTOR_CACHE_DIR=$MEMFS/torchinductor_cache
 srun python scripts/train.py \
     +experiment=kd_vit_b16_to_b16_cc3m12m \
     dataset=combined_wds_dali_pretok \
-    "hydra.run.dir=outputs/${SLURM_JOB_ID}_kd_vit_b16_to_b16_cc3m12m" \
-    "training.resume_ckpt=${SCRATCH}/clip-kd-snn/outputs/15907599_kd_vit_b16_to_b16_cc3m12m/checkpoints/best-epoch\=016-top1\=0.4459.ckpt"
+    "hydra.run.dir=outputs/${SLURM_JOB_ID}_kd_vit_b16_to_b16_cc3m12m" 
