@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional
 
 import torch
 import torch.nn as nn
@@ -62,8 +62,26 @@ class LoopViT(nn.Module):
         use_exit_gate: bool = True,
         gate_threshod: float = 0.6,
         swiglu: bool = False,
+        loop_mode: str = "global",
+        loop_schedule: Optional[List[int]] = None,
     ):
         super().__init__()
+
+        if loop_mode not in ("global", "per_block"):
+            raise ValueError(f"loop_mode must be 'global' or 'per_block', got {loop_mode!r}")
+        if loop_mode == "per_block":
+            if loop_schedule is None:
+                raise ValueError("loop_schedule is required when loop_mode='per_block'")
+            if len(loop_schedule) != loop_core_depth:
+                raise ValueError(
+                    f"loop_schedule length {len(loop_schedule)} != loop_core_depth {loop_core_depth}"
+                )
+            if any(s < 1 for s in loop_schedule):
+                raise ValueError("all values in loop_schedule must be >= 1")
+            if add_step_embeddings:
+                raise ValueError("add_step_embeddings is not supported in loop_mode='per_block'")
+            if use_exit_gate:
+                raise ValueError("use_exit_gate is not supported in loop_mode='per_block'")
 
         self.embed_dim = embed_dim
         self.max_loop_steps = max_loop_steps
@@ -73,14 +91,33 @@ class LoopViT(nn.Module):
         self.use_exit_gate = use_exit_gate
         self.default_gate_threshold = gate_threshod
 
-        self.encoder = TransformerEncoder(
-            dim=embed_dim,
-            depth=loop_core_depth,
-            num_heads=num_heads,
-            dropout=dropout,
-            final_norm=False,
-            swiglu=swiglu,
-        )
+        self.loop_mode = loop_mode
+        self.loop_schedule = loop_schedule
+
+        if loop_mode == "global":
+            self.encoder = TransformerEncoder(
+                dim=embed_dim,
+                depth=loop_core_depth,
+                num_heads=num_heads,
+                dropout=dropout,
+                final_norm=False,
+                swiglu=swiglu,
+            )
+            self.blocks = None
+        else:  # per_block
+            self.encoder = None
+            self.blocks = nn.ModuleList([
+                TransformerEncoder(
+                    dim=embed_dim,
+                    depth=1,
+                    num_heads=num_heads,
+                    dropout=dropout,
+                    final_norm=False,
+                    swiglu=swiglu,
+                )
+                for _ in range(loop_core_depth)
+            ])
+            self.max_loop_steps = sum(loop_schedule)
 
         self.patch = PatchEmbed(
             img_size=img_size,
@@ -166,11 +203,16 @@ class LoopViT(nn.Module):
         """
         running_hidden = self.image_tokens(images)
 
-        for step in range(self.max_loop_steps):
-            if self.step_embed is not None:
-                embed_step = min(step, self.step_embed.num_embeddings - 1)
-                running_hidden = running_hidden + self.step_embed.weight[embed_step].view(1, 1, -1)
-            running_hidden = self.encoder(running_hidden)
+        if self.loop_mode == "global":
+            for step in range(self.max_loop_steps):
+                if self.step_embed is not None:
+                    embed_step = min(step, self.step_embed.num_embeddings - 1)
+                    running_hidden = running_hidden + self.step_embed.weight[embed_step].view(1, 1, -1)
+                running_hidden = self.encoder(running_hidden)
+        else:  # per_block: each block runs its scheduled number of steps sequentially
+            for block, n_steps in zip(self.blocks, self.loop_schedule):
+                for _ in range(n_steps):
+                    running_hidden = block(running_hidden)
 
         final_states = self.head_norm(running_hidden)
         return final_states[:, 0, :]
@@ -186,6 +228,28 @@ class LoopViT(nn.Module):
         batch_size = images.shape[0]
         hidden_states = self.image_tokens(images)
 
+        running_hidden = hidden_states
+        device = images.device
+
+        exit_steps = torch.full(
+            (batch_size,), self.max_loop_steps, dtype=torch.long, device=device
+        )
+
+        # per_block mode: sequential execution, no dynamic exit or gate
+        if self.loop_mode == "per_block":
+            for block, n_steps in zip(self.blocks, self.loop_schedule):
+                for _ in range(n_steps):
+                    running_hidden = block(running_hidden)
+            final_states = self.head_norm(running_hidden)
+            logits = self.head(final_states[:, 0, :])
+            metadata = LoopForwardMetadata(
+                gate_probs=[], exit_steps=exit_steps, max_steps=self.max_loop_steps
+            )
+            if return_intermediates:
+                return logits, metadata, []
+            return logits, metadata
+
+        # global mode: original loop with optional dynamic exit and step embeddings
         use_dynamic_exit = bool(dynamic_exit) and self.use_exit_gate
         threshold = (
             gate_threshold
@@ -198,18 +262,16 @@ class LoopViT(nn.Module):
             else self.max_loop_steps
         )
 
-        running_hidden = hidden_states
-        device = images.device
+        exit_steps = torch.full(
+            (batch_size,), current_max, dtype=torch.long, device=device
+        )
+
         if use_dynamic_exit:
             finished_mask = torch.zeros(batch_size, dtype=torch.bool, device=device)
             cached_final = torch.zeros_like(running_hidden)
 
         else:
             cached_final = None
-
-        exit_steps = torch.full(
-            (batch_size,), current_max, dtype=torch.long, device=device
-        )
 
         gate_probs: List[torch.Tensor] = []
         intermediate_logits_list: List[torch.Tensor] = []

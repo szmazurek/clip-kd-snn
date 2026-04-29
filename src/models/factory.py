@@ -115,6 +115,9 @@ def _build_loopvit_student_model(
 
     # ---- Visual encoder (LoopViT) -----------------------------------------
     visual_embed_dim = int(cfg.model.get("embed_dim", 768))
+    loop_mode = str(cfg.model.get("loop_mode", "global"))
+    loop_schedule_raw = cfg.model.get("loop_schedule", None)
+    loop_schedule = list(loop_schedule_raw) if loop_schedule_raw is not None else None
     visual = LoopViT(
         img_size=224,
         patch_size=16,
@@ -129,6 +132,8 @@ def _build_loopvit_student_model(
         min_loop_steps=int(cfg.model.get("min_loop_steps", 1)),
         add_step_embeddings=bool(cfg.model.get("add_step_embeddings", False)),
         use_exit_gate=bool(cfg.model.get("use_exit_gate", False)),
+        loop_mode=loop_mode,
+        loop_schedule=loop_schedule,
     )
 
     # ---- Assemble CLIP model ----------------------------------------------
