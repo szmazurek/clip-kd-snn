@@ -282,10 +282,20 @@ def parse_args() -> argparse.Namespace:
     # SNN
     parser.add_argument("--T", type=int, default=4, help="SNN timesteps")
     parser.add_argument(
-        "--neuron-type", default="lif", choices=["lif", "plif", "nlif", "glif"]
+        "--neuron-type",
+        default="lif",
+        choices=["lif", "plif", "nlif", "glif", "psn", "masked_psn", "sliding_psn"],
     )
     parser.add_argument(
         "--backend", default="torch", choices=["torch", "triton", "cupy"]
+    )
+    parser.add_argument(
+        "--psn-k", type=int, default=2,
+        help="Order k for masked_psn / sliding_psn",
+    )
+    parser.add_argument(
+        "--psn-backend", default="gemm", choices=["gemm", "conv"],
+        help="Multi-step backend for sliding_psn (unused by compile-friendly variant)",
     )
     # Compile
     parser.add_argument(
@@ -319,6 +329,9 @@ def main() -> None:
         tau=2.0,
         v_threshold=1.0,
         backend=args.backend,
+        T=args.T,
+        psn_k=args.psn_k,
+        psn_backend=args.psn_backend,
     )
     model = MSFormer_10_512(T=args.T, snn=snn_params, num_classes=1000)
 

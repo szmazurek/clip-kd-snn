@@ -40,17 +40,24 @@ class SNNParams:
     """Hyperparameters for spiking neurons throughout QKFormer.
 
     Attributes:
-        neuron_type: Neuron model. One of 'lif', 'sj_lif', 'plif', 'nlif', 'glif'.
+        neuron_type: Neuron model. One of 'lif', 'sj_lif', 'plif', 'nlif', 'glif',
+                     'psn', 'masked_psn', 'sliding_psn'.
         v_threshold: Spike threshold voltage (default 1.0).
         tau: Membrane time constant (default 2.0).
-        backend: Computation backend. 'torch' is always safe; 'triton' for
-                 newer GPUs. 'cupy' requires CuPy to be installed.
+        backend: Computation backend for sj_lif/plif/glif. 'torch' is always safe;
+                 'triton' for newer GPUs. 'cupy' requires CuPy to be installed.
+        T: Number of timesteps. Required by PSN and MaskedPSN.
+        psn_k: Order (receptive field width) for MaskedPSN and SlidingPSN.
+        psn_backend: Backend for SlidingPSN multi-step mode: 'gemm' or 'conv'.
     """
 
     neuron_type: str = "lif"
     v_threshold: float = 1.0
     tau: float = 2.0
     backend: str = "torch"
+    T: int = 4
+    psn_k: int = 2
+    psn_backend: str = "gemm"
 
 
 def _build_lif_node(snn: SNNParams, v_threshold: Optional[float] = None) -> nn.Module:
@@ -97,9 +104,25 @@ def _build_lif_node(snn: SNNParams, v_threshold: Optional[float] = None) -> nn.M
         )
     if snn.neuron_type == "glif":
         return _sj_neuron.GatedLIFNode(step_mode="m", backend=snn.backend)
+
+    from src.models.visual_encoders.psn_node import (
+        PSNAdapter,
+        CompileFriendlyPSN,
+        CompileFriendlyMaskedPSN,
+        CompileFriendlySlidingPSN,
+    )
+
+    if snn.neuron_type == "psn":
+        return PSNAdapter(CompileFriendlyPSN(T=snn.T), T=snn.T)
+    if snn.neuron_type == "masked_psn":
+        return PSNAdapter(CompileFriendlyMaskedPSN(T=snn.T, k=snn.psn_k), T=snn.T)
+    if snn.neuron_type == "sliding_psn":
+        return PSNAdapter(CompileFriendlySlidingPSN(T=snn.T, k=snn.psn_k), T=snn.T)
+
     raise ValueError(
         f"Unknown neuron_type '{snn.neuron_type}'. "
-        "Choose from: 'lif', 'sj_lif', 'plif', 'nlif', 'glif'."
+        "Choose from: 'lif', 'sj_lif', 'plif', 'nlif', 'glif', "
+        "'psn', 'masked_psn', 'sliding_psn'."
     )
 
 

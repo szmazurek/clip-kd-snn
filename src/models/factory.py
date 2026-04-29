@@ -167,13 +167,16 @@ def _build_qkformer_student_model(
     if isinstance(snn_cfg, DictConfig):
         snn_cfg = OmegaConf.to_container(snn_cfg, resolve=True)
 
+    T = int(snn_cfg.get("T", 4))
     snn = SNNParams(
         neuron_type=snn_cfg.get("neuron_type", "lif"),
         v_threshold=float(snn_cfg.get("v_threshold", 1.0)),
         tau=float(snn_cfg.get("tau", 2.0)),
         backend=snn_cfg.get("backend", "torch"),
+        T=T,
+        psn_k=int(snn_cfg.get("psn_k", 2)),
+        psn_backend=snn_cfg.get("psn_backend", "gemm"),
     )
-    T = int(snn_cfg.get("T", 4))
 
     # ---- Text encoder (open_clip) -----------------------------------------
     text_encoder_name = cfg.model.get("text_encoder_name", "ViT-B-16")
@@ -223,13 +226,16 @@ def _build_msvit_student_model(
     if isinstance(snn_cfg, DictConfig):
         snn_cfg = OmegaConf.to_container(snn_cfg, resolve=True)
 
+    T = int(snn_cfg.get("T", 4))
     snn = SNNParams(
         neuron_type=snn_cfg.get("neuron_type", "lif"),
         v_threshold=float(snn_cfg.get("v_threshold", 1.0)),
         tau=float(snn_cfg.get("tau", 2.0)),
         backend=snn_cfg.get("backend", "torch"),
+        T=T,
+        psn_k=int(snn_cfg.get("psn_k", 2)),
+        psn_backend=snn_cfg.get("psn_backend", "gemm"),
     )
-    T = int(snn_cfg.get("T", 4))
 
     # ---- Text encoder (open_clip) -----------------------------------------
     text_encoder_name = cfg.model.get("text_encoder_name", "ViT-B-16")

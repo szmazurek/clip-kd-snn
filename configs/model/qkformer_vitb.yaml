@@ -22,8 +22,10 @@ compile_snn_mode: "default"  # torch.compile mode for the SNN block
 
 # SNN hyperparameters
 snn:
-  T: 2                # SNN simulation timesteps (input frame repeated T times)
-  neuron_type: "lif"   # Neuron model: lif | sj_lif | plif | nlif | glif
-  v_threshold: 1.0     # Spike threshold voltage
-  tau: 2.0             # Membrane time constant
-  backend: "torch"     # Computation backend: torch | triton | cupy
+  T: 2                   # SNN simulation timesteps (input frame repeated T times)
+  neuron_type: "lif"     # Neuron model: lif | sj_lif | plif | nlif | glif | psn | masked_psn | sliding_psn
+  v_threshold: 1.0       # Spike threshold voltage (not used by PSN variants)
+  tau: 2.0               # Membrane time constant (LIF only)
+  backend: "torch"       # Computation backend for sj_lif/plif/glif: torch | triton | cupy
+  psn_k: 2               # Order k for masked_psn / sliding_psn
+  psn_backend: "gemm"    # sliding_psn backend: gemm | conv

@@ -57,7 +57,7 @@ class ImageNetClassificationModule(L.LightningModule):
             # "default" mode does kernel fusion without CUDA Graphs.
             model = torch.compile(
                 model,
-                fullgraph=False,
+                fullgraph=True,
                 mode=compile_mode,
             )
         self.model = model

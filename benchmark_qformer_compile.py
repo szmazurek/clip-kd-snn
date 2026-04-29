@@ -108,7 +108,7 @@ def benchmark_module(module, input_data, name):
 # ==========================================
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    snn_params = SNNParams()
+    snn_params = SNNParams(neuron_type="psn")
 
     T = 4
     B = 32
