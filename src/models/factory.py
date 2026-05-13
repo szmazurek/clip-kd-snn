@@ -77,6 +77,29 @@ def _is_loopvit(name: str) -> bool:
     return name.startswith(_LOOPVIT_PREFIX)
 
 
+# ---------------------------------------------------------------------------
+# PseudoSNN (SEWResNet + PseudoNeuron) model registry
+# ---------------------------------------------------------------------------
+
+_SEWRESNET_PREFIX = "PseudoSNN-"
+
+# Maps PseudoSNN model name → effective CLIP embedding dimension (= text encoder dim)
+_SEWRESNET_EMBED_DIMS: dict[str, int] = {
+    "PseudoSNN-ViT-B-16": 512,
+}
+
+# Backbone feature dim per SEWResNet architecture (before any projection)
+_SEWRESNET_VISUAL_DIMS: dict[str, int] = {
+    "sew_resnet18": 512,
+    "sew_resnet34": 512,
+    "sew_resnet50": 2048,
+}
+
+
+def _is_sewresnet(name: str) -> bool:
+    return name.startswith(_SEWRESNET_PREFIX)
+
+
 def _build_loopvit_student_model(
     cfg: DictConfig,
 ) -> tuple[nn.Module, Callable, Callable]:
@@ -138,6 +161,66 @@ def _build_loopvit_student_model(
 
     # ---- Assemble CLIP model ----------------------------------------------
     model = LoopViTCLIPModel(
+        visual=visual,
+        text_model=text_clip,
+        visual_embed_dim=visual_embed_dim,
+        text_embed_dim=text_embed_dim,
+    )
+    return CLIPWrapper(model), preprocess_train, preprocess_val
+
+
+def _build_sewresnet_pseudo_student_model(
+    cfg: DictConfig,
+) -> tuple[nn.Module, Callable, Callable]:
+    """Create student model with PseudoSNN SEWResNet image encoder + open_clip text encoder.
+
+    Args:
+        cfg: Hydra config.  Reads:
+            cfg.model.text_encoder_name  – open_clip model name for the text side.
+            cfg.model.resnet_arch        – backbone variant: sew_resnet18 | sew_resnet34 | sew_resnet50.
+            cfg.model.pseudo_snn.*       – PseudoNeuron hyperparameters.
+
+    Returns:
+        Tuple of (CLIPWrapper(SEWResnetPseudoCLIPModel), preprocess_train, preprocess_val).
+    """
+    from .sew_resnet_clip import SEWResnetPseudoCLIPModel
+    from .visual_encoders.sew_resnet_pseudo import sew_resnet18, sew_resnet34, sew_resnet50
+
+    # ---- Text encoder (open_clip) -----------------------------------------
+    text_encoder_name = cfg.model.get("text_encoder_name", "ViT-B-16")
+    text_clip, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
+        text_encoder_name, pretrained=None
+    )
+    del text_clip.visual
+    text_embed_dim = open_clip.get_model_config(text_encoder_name)["embed_dim"]
+
+    # ---- PseudoNeuron config -----------------------------------------------
+    psn_cfg = cfg.model.get("pseudo_snn", {})
+    if isinstance(psn_cfg, DictConfig):
+        psn_cfg = OmegaConf.to_container(psn_cfg, resolve=True)
+    neuron_kwargs = {
+        "init_T": float(psn_cfg.get("init_T", 8.0)),
+        "min_T": int(psn_cfg.get("min_T", 1)),
+        "max_T": int(psn_cfg.get("max_T", 16)),
+        "noise_type": str(psn_cfg.get("noise_type", "uniform")),
+        "noise_prob": float(psn_cfg.get("noise_prob", 0.5)),
+        "scale": float(psn_cfg.get("scale", 1.0)),
+    }
+
+    # ---- Visual encoder (SEWResNet) ----------------------------------------
+    arch = str(cfg.model.get("resnet_arch", "sew_resnet18"))
+    _arch_builders = {
+        "sew_resnet18": sew_resnet18,
+        "sew_resnet34": sew_resnet34,
+        "sew_resnet50": sew_resnet50,
+    }
+    if arch not in _arch_builders:
+        raise ValueError(f"Unknown resnet_arch {arch!r}. Choose from: {list(_arch_builders)}")
+    visual = _arch_builders[arch](num_classes=1000, **neuron_kwargs)
+    visual_embed_dim = _SEWRESNET_VISUAL_DIMS[arch]
+
+    # ---- Assemble CLIP model -----------------------------------------------
+    model = SEWResnetPseudoCLIPModel(
         visual=visual,
         text_model=text_clip,
         visual_embed_dim=visual_embed_dim,
@@ -284,6 +367,8 @@ def build_student_model(
         return _build_qkformer_student_model(cfg)
     if _is_loopvit(cfg.model.name):
         return _build_loopvit_student_model(cfg)
+    if _is_sewresnet(cfg.model.name):
+        return _build_sewresnet_pseudo_student_model(cfg)
 
     pretrained = cfg.model.get("pretrained", None)
     model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
@@ -336,6 +421,8 @@ def get_embed_dim(model_name: str) -> int:
         return _QKFORMER_EMBED_DIMS[model_name]
     if model_name in _LOOPVIT_EMBED_DIMS:
         return _LOOPVIT_EMBED_DIMS[model_name]
+    if model_name in _SEWRESNET_EMBED_DIMS:
+        return _SEWRESNET_EMBED_DIMS[model_name]
 
     cfg = open_clip.get_model_config(model_name)
     if cfg is None:

@@ -5,6 +5,7 @@ alpha_ckd: 0.0
 alpha_icl: 0.0
 alpha_fd: 0.0
 alpha_mfd: 0.0
+alpha_am: 0.0
 alpha_gd: 1.0e8
 alpha_afd: 0.0
 

@@ -11,6 +11,7 @@ alpha_ckd: 1.0
 alpha_icl: 1.0
 alpha_fd: 2000.0
 alpha_mfd: 0.0
+alpha_am: 1.0
 alpha_gd: 0.0
 alpha_afd: 0.0
 

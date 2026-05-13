@@ -83,6 +83,21 @@ class LoopViTCLIPModel(nn.Module):
 
         return F.normalize(x, dim=-1) if normalize else x
 
+    def encode_image_with_intermediates(
+        self, image: Tensor
+    ) -> tuple[Tensor, list[Tensor]]:
+        """Encode images and return both final embedding and per-iteration full token sequences.
+
+        Returns:
+            Tuple of:
+                [B, D] final image embedding (unnormalized, same as encode_image(normalize=False)).
+                List of [B, N, embed_dim] full token sequences after each loop iteration (pre head_norm).
+        """
+        x, intermediates = self.visual.forward_features_with_intermediates(image)
+        if self.visual_proj is not None:
+            x = self.visual_proj(x)
+        return x, intermediates
+
     @torch.cuda.nvtx.range("TextEncode")
     def encode_text(self, text: Tensor, normalize: bool = False) -> Tensor:
         """Encode tokenised text via the open_clip text encoder.

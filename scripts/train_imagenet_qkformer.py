@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import torch
 import torchvision.transforms as T
 from PIL import Image
+from torch.profiler import ProfilerActivity
 from torch.utils.data import DataLoader, Dataset
 import lightning as L
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
@@ -254,6 +255,37 @@ def build_imagefolder_datasets(data_dir: str, train_tf, val_tf):
 
 
 # ---------------------------------------------------------------------------
+# Profiler callback
+# ---------------------------------------------------------------------------
+
+
+class ProfilerCallback(L.Callback):
+    """Wraps a torch.profiler.profile context around the Lightning training loop.
+
+    Enters the profiler on train start, calls prof.step() after every batch,
+    and exits cleanly when the schedule completes. Training is stopped
+    automatically after `total_steps` batches via limit_train_batches so the
+    profiler always captures exactly one full schedule cycle.
+
+    Note: with_stack=True adds significant CPU overhead (2–5× slowdown).
+    This is expected — the trace reflects real kernel timing, not Python timing.
+    """
+
+    def __init__(self, prof: torch.profiler.profile) -> None:
+        super().__init__()
+        self.prof = prof
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        self.prof.__enter__()
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
+        self.prof.step()
+
+    def on_train_end(self, trainer, pl_module) -> None:
+        self.prof.__exit__(None, None, None)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -286,15 +318,21 @@ def parse_args() -> argparse.Namespace:
         choices=["lif", "plif", "nlif", "glif", "psn", "masked_psn", "sliding_psn"],
     )
     parser.add_argument(
-        "--backend", default="torch", choices=["torch", "triton", "cupy"],
+        "--backend",
+        default="torch",
+        choices=["torch", "triton", "cupy"],
         help="Compute backend for sj_lif/plif/glif",
     )
     parser.add_argument(
-        "--psn-k", type=int, default=2,
+        "--psn-k",
+        type=int,
+        default=2,
         help="Order k for masked_psn / sliding_psn",
     )
     parser.add_argument(
-        "--psn-backend", default="gemm", choices=["gemm", "conv"],
+        "--psn-backend",
+        default="gemm",
+        choices=["gemm", "conv"],
         help="Multi-step backend for sliding_psn",
     )
     # Compile
@@ -304,6 +342,37 @@ def parse_args() -> argparse.Namespace:
         help="Wrap SNN forward_features with torch.compile",
     )
     parser.add_argument("--compile-mode", default="default")
+    # Profiler
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Run torch.profiler for a short burst then exit. "
+        "Writes a TensorBoard trace to --profile-dir.",
+    )
+    parser.add_argument(
+        "--profile-dir",
+        default="./profiler_traces/qkformer",
+        help="Directory for TensorBoard profiler traces.",
+    )
+    parser.add_argument(
+        "--profile-wait",
+        type=int,
+        default=2,
+        help="Batches to skip before warmup. Use ≥2 with --compile-snn "
+        "to let Dynamo/Inductor finish before capturing.",
+    )
+    parser.add_argument(
+        "--profile-warmup",
+        type=int,
+        default=1,
+        help="Batches used to warm CUDA caches (recorded but excluded from stats).",
+    )
+    parser.add_argument(
+        "--profile-active",
+        type=int,
+        default=5,
+        help="Batches actively profiled and written to the trace.",
+    )
     # Hardware
     parser.add_argument("--gpus", type=int, default=1)
     parser.add_argument(
@@ -380,9 +449,45 @@ def main() -> None:
         persistent_workers=False,
     )
 
+    # ---- Profiler (optional) ----
+    extra_callbacks = []
+    limit_train_batches: int | float = 1.0
+    limit_val_batches: int | float = 1.0
+
+    if args.profile:
+        total_steps = args.profile_wait + args.profile_warmup + args.profile_active
+        os.makedirs(args.profile_dir, exist_ok=True)
+        prof = torch.profiler.profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(
+                wait=args.profile_wait,
+                warmup=args.profile_warmup,
+                active=args.profile_active,
+                repeat=1,
+            ),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,
+            with_flops=True,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(args.profile_dir),
+        )
+        extra_callbacks = [ProfilerCallback(prof)]
+        # Cap at exactly one schedule cycle; skip validation (no need for profiling)
+        limit_train_batches = total_steps
+        limit_val_batches = 0
+        print(
+            f"[profiler] schedule: wait={args.profile_wait}, "
+            f"warmup={args.profile_warmup}, active={args.profile_active} "
+            f"({total_steps} total batches)"
+        )
+        print(f"[profiler] trace → {args.profile_dir}")
+        print("[profiler] NOTE: with_stack=True adds 2–5× CPU overhead — expected.")
+
     # ---- Trainer ----
     trainer = L.Trainer(
-        max_epochs=args.epochs,
+        max_epochs=1 if args.profile else args.epochs,
+        limit_train_batches=limit_train_batches,
+        limit_val_batches=limit_val_batches,
         devices=args.gpus,
         strategy="ddp" if args.gpus > 1 else "auto",
         precision=args.precision,
@@ -396,10 +501,12 @@ def main() -> None:
                 save_top_k=3,
                 save_last=True,
             ),
+            *extra_callbacks,
         ],
         logger=CSVLogger(args.output_dir, name=""),
         log_every_n_steps=50,
         enable_progress_bar=True,
+        accumulate_grad_batches=8,
     )
 
     trainer.fit(lit_model, train_loader, val_loader, ckpt_path=args.checkpoint)

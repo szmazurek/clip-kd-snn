@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from omegaconf import DictConfig
 
+from .activation_matching import ActivationMatchingLoss
 from .afd import AFDLoss
 from .clip_loss import CLIPInfoNCELoss
 from .composite import CompositeLoss
@@ -62,6 +63,20 @@ def build_loss(
         # MFD is FD with masking applied by CLIPKDModule; treated as "fd" slot
         losses["fd"] = MFDLoss()
         weights["fd"] = alpha_mfd
+
+    # AM — activation matching between student loop iterations and teacher blocks
+    # Uses the internal hidden dims of each model (pre-norm, before the final CLIP projection),
+    # which differ from s_embed_dim / t_embed_dim (those are post-projection CLIP output dims).
+    # Default 768 matches both ViT-B/16 internal width and LoopViT embed_dim.
+    alpha_am = float(cfg.get("alpha_am", 0.0))
+    if alpha_am > 0.0:
+        am_student_dim = int(cfg.get("am_student_dim", 768))
+        am_teacher_dim = int(cfg.get("am_teacher_dim", 768))
+        losses["am"] = ActivationMatchingLoss(
+            student_dim=am_student_dim,
+            teacher_dim=am_teacher_dim,
+        )
+        weights["am"] = alpha_am
 
     # GD — expensive, disabled unless explicitly requested
     _add("gd", "alpha_gd", GDLoss())

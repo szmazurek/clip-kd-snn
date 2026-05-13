@@ -88,8 +88,16 @@ class CompileFriendlyPSN(nn.Module):
         Returns:
             Spike tensor of shape [T, N].
         """
-        h = self.W @ x - self.theta
-        return _ste_spike(h, self.surrogate_alpha)
+        with torch.profiler.record_function("psn/matmul_W_at_X"):
+            # Elementwise-sum form of W @ x so Dynamo can unroll (static T) and
+            # Inductor fuses the entire temporal mixing + spike into one Triton
+            # kernel, eliminating the 4× cuBLAS gemmSN_NN launches + H write.
+            h = sum(
+                self.W[:, s].unsqueeze(-1) * x[s].unsqueeze(0)
+                for s in range(self.T)
+            ) - self.theta
+        with torch.profiler.record_function("psn/spike_ste"):
+            return _ste_spike(h, self.surrogate_alpha)
 
     def extra_repr(self) -> str:
         return f"T={self.T}, surrogate_alpha={self.surrogate_alpha}"
@@ -131,8 +139,14 @@ class CompileFriendlyMaskedPSN(nn.Module):
         Returns:
             Spike tensor of shape [T, N].
         """
-        h = (self.W * self.mask) @ x - self.theta
-        return _ste_spike(h, self.surrogate_alpha)
+        with torch.profiler.record_function("masked_psn/matmul_W_at_X"):
+            W_masked = self.W * self.mask
+            h = sum(
+                W_masked[:, s].unsqueeze(-1) * x[s].unsqueeze(0)
+                for s in range(self.T)
+            ) - self.theta
+        with torch.profiler.record_function("masked_psn/spike_ste"):
+            return _ste_spike(h, self.surrogate_alpha)
 
     def extra_repr(self) -> str:
         return f"T={self.T}, k={self.k}, surrogate_alpha={self.surrogate_alpha}"
@@ -171,11 +185,12 @@ class CompileFriendlySlidingPSN(nn.Module):
         Returns:
             Spike tensor of shape [T, N].
         """
-        # Causal padding: pad k zeros on the left of the T dimension
-        x_t = x.T.unsqueeze(1)                    # [N, 1, T]
-        x_padded = F.pad(x_t, (self.k, 0))        # [N, 1, T+k]
-        h = self.conv(x_padded).squeeze(1).T - self.theta   # [T, N]
-        return _ste_spike(h, self.surrogate_alpha)
+        with torch.profiler.record_function("sliding_psn/conv1d"):
+            x_t = x.T.unsqueeze(1)                    # [N, 1, T]
+            x_padded = F.pad(x_t, (self.k, 0))        # [N, 1, T+k]
+            h = self.conv(x_padded).squeeze(1).T - self.theta   # [T, N]
+        with torch.profiler.record_function("sliding_psn/spike_ste"):
+            return _ste_spike(h, self.surrogate_alpha)
 
     def extra_repr(self) -> str:
         return f"T={self.T}, k={self.k}, surrogate_alpha={self.surrogate_alpha}"
@@ -208,10 +223,12 @@ class PSNAdapter(nn.Module):
             Spike tensor of the same shape as x.
         """
         orig_shape = x.shape
-        # Reshape [T*B, *] → [T, B*rest_flat] so PSN sees exactly T timesteps
-        x_flat = x.reshape(self.T, -1)
-        spike_flat = self.psn(x_flat)
-        return spike_flat.reshape(orig_shape)
+        with torch.profiler.record_function("psn_adapter/reshape_in"):
+            x_flat = x.reshape(self.T, -1)
+        with torch.profiler.record_function("psn_adapter/inner"):
+            spike_flat = self.psn(x_flat)
+        with torch.profiler.record_function("psn_adapter/reshape_out"):
+            return spike_flat.reshape(orig_shape)
 
     def extra_repr(self) -> str:
         return f"T={self.T}"

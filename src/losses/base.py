@@ -1,7 +1,8 @@
 """Base classes and shared data structures for CLIP-KD losses."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 import torch
 from torch import nn
@@ -37,6 +38,8 @@ class KDFeatures:
     s_logit_scale: torch.Tensor
     t_logit_scale: torch.Tensor
     labels: torch.Tensor
+    s_intermediates: Optional[List[torch.Tensor]] = field(default=None)
+    t_intermediates: Optional[List[torch.Tensor]] = field(default=None)
 
 
 class CLIPDistillationLoss(nn.Module):

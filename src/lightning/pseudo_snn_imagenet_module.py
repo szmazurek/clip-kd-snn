@@ -1,19 +1,15 @@
-"""Lightning module for standalone ImageNet classification with MSViT.
+"""Lightning module for PseudoSNN ImageNet classification.
 
-Used as a sanity check to verify that the SNN backbone can learn at all before
-committing to the full CLIP pipeline. Trains MSFormer_10_512 with a standard
-1000-class linear head using cross-entropy loss.
+Wraps a SEWResNet (or any model built on PseudoNeuron) with:
+  - Cross-entropy classification loss
+  - Optional T-mean penalty: loss += penalty * mean(T across all PseudoNeurons)
+    This drives neurons to learn shorter timesteps, reducing inference cost.
+  - AdamW + cosine LR schedule with linear warmup (identical to ImageNetClassificationModule)
 
-Usage (via scripts/train_imagenet_cls.py):
-    python scripts/train_imagenet_cls.py \\
-        --train-dir /path/to/imagenet/train \\
-        --val-dir   /path/to/imagenet/val \\
-        --epochs 90 --batch-size 128
+Usage via scripts/train_imagenet_pseudo_snn.py.
 """
 
 from __future__ import annotations
-
-import math
 
 import lightning as L
 import torch
@@ -21,19 +17,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
 
+from ..models.visual_encoders.pseudo_neuron import PseudoNeuron
 from ..utils.misc import cosine_lr_lambda, exclude_weight_decay
 
 
-class ImageNetClassificationModule(L.LightningModule):
-    """LightningModule for MSViT ImageNet classification.
+class PseudoSNNImageNetModule(L.LightningModule):
+    """LightningModule for PseudoSNN ImageNet classification.
 
     Args:
-        model: A ``hierarchical_spiking_transformer`` with ``num_classes=1000``.
-        lr: Peak learning rate.
-        weight_decay: AdamW weight decay.
-        warmup_steps: Linear warmup steps (step-based, not epoch-based).
+        model: SEWResNet with num_classes=1000 (returns plain logits).
+        lr: Peak AdamW learning rate.
+        weight_decay: Weight decay for non-bias/BN parameters.
+        warmup_steps: Linear warmup steps.
+        penalty: Coefficient on the T-mean regulariser. Set to 0 to disable.
         compile_snn: If True, wrap model with torch.compile before training.
-        compile_mode: torch.compile mode string (default: "reduce-overhead").
+        compile_mode: torch.compile mode string.
     """
 
     def __init__(
@@ -42,6 +40,7 @@ class ImageNetClassificationModule(L.LightningModule):
         lr: float = 1e-3,
         weight_decay: float = 0.05,
         warmup_steps: int = 1000,
+        penalty: float = 1e-2,
         compile_snn: bool = False,
         compile_mode: str = "default",
     ) -> None:
@@ -50,62 +49,80 @@ class ImageNetClassificationModule(L.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_steps = warmup_steps
+        self.penalty = penalty
 
         if compile_snn:
-            # Compile the whole model module. Compiling __call__ (not a bound method)
-            # handles train→eval mode switching correctly via guard invalidation.
-            # "default" mode does kernel fusion without CUDA Graphs.
-            model = torch.compile(
-                model,
-                fullgraph=True,
-                mode=compile_mode,
-            )
+            model = torch.compile(model, fullgraph=True, mode=compile_mode)
         self.model = model
-        self._model_for_reset = model
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _compute_t_mean(self) -> torch.Tensor:
+        """Mean of learned T across all PseudoNeurons in the model."""
+        T_list = [
+            m.get_timesteps()
+            for m in self.model.modules()
+            if isinstance(m, PseudoNeuron)
+        ]
+        if not T_list:
+            return torch.tensor(0.0, device=self.device)
+        return torch.stack(T_list).mean()
 
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
-    @torch.cuda.nvtx.range("training_step")
+
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         images, labels = batch
         logits = self.model(images)
         loss = F.cross_entropy(logits, labels)
-        # self.log(
-        #     "train_loss",
-        #     loss,
-        #     on_step=True,
-        #     on_epoch=True,
-        #     prog_bar=True,
-        #     sync_dist=True,
-        # )
+
+        acc1 = (logits.argmax(dim=1) == labels).float().mean()
+        self.log("train_acc1", acc1, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+
+        if self.penalty > 0.0:
+            t_mean = self._compute_t_mean()
+            loss = loss + self.penalty * t_mean
+            self.log("train_t_mean", t_mean.detach(), on_step=True, on_epoch=False, prog_bar=True)
+
         return loss
 
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
-    @torch.cuda.nvtx.range("backward")
-    def backward(self, loss):
-        loss.backward()
 
     def validation_step(self, batch, batch_idx: int) -> None:
         images, labels = batch
         logits = self.model(images)
         loss = F.cross_entropy(logits, labels)
-        # Top-1
+
         acc1 = (logits.argmax(dim=1) == labels).float().mean()
-        # Top-5
-        top5_preds = logits.topk(5, dim=1).indices  # [B, 5]
+        top5_preds = logits.topk(5, dim=1).indices
         acc5 = (top5_preds == labels.unsqueeze(1)).any(dim=1).float().mean()
+
         self.log("val_loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log("val_acc1", acc1, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log("val_acc5", acc5, on_epoch=True, sync_dist=True)
+
+        # Log average T at validation time (no gradient needed)
+        t_vals = [
+            m.get_timesteps().item()
+            for m in self.model.modules()
+            if isinstance(m, PseudoNeuron)
+        ]
+        if t_vals:
+            avg_t = sum(t_vals) / len(t_vals)
+            self.log("val_t_mean", avg_t, on_epoch=True, prog_bar=False, sync_dist=True)
 
     # ------------------------------------------------------------------
     # Optimizer & scheduler
     # ------------------------------------------------------------------
 
     def configure_optimizers(self):
+        # PseudoNeuron.logit / scale / bias are 0-D or 1-D → caught by exclude_weight_decay
         no_wd, wd_params = exclude_weight_decay(list(self.model.named_parameters()))
         optimizer = torch.optim.AdamW(
             [

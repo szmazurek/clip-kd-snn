@@ -12,7 +12,7 @@ from torch import nn
 from .base import CLIPDistillationLoss, KDFeatures
 
 
-_LOSS_ORDER = ["task", "ckd", "icl", "fd", "gd", "afd"]
+_LOSS_ORDER = ["task", "ckd", "icl", "fd", "am", "gd", "afd"]
 
 
 class CompositeLoss(nn.Module):

@@ -1,0 +1,33 @@
+# PseudoSNN SEWResNet18 image encoder (512-dim) + ViT-B/16 text encoder (512-dim)
+# No projection needed: visual and text spaces have the same dimension.
+name: "PseudoSNN-ViT-B-16"
+student_checkpoint: null
+pretrained: null
+
+# Text encoder used on the ANN side (open_clip model name, pretrained=None)
+text_encoder_name: "ViT-B-16"
+
+# SEWResNet backbone variant: sew_resnet18 | sew_resnet34 | sew_resnet50
+# Note: resnet50 outputs 2048-dim features and will use a learned projection to 512.
+resnet_arch: "sew_resnet18"
+
+# Teacher fields (unused for baseline; populated in KD experiment configs)
+teacher_name: null
+teacher_checkpoint: null
+teacher_pretrained: null
+
+# Student text encoder control
+init_student_text_from_teacher: false
+freeze_student_text_encoder: false
+
+compile: true
+compile_snn: false   # PseudoNeuron uses ReLU proxy in training — torch.compile safe
+
+# PseudoNeuron hyperparameters
+pseudo_snn:
+  init_T: 8.0        # initial learned timestep count (differentiable via sigmoid STE)
+  min_T: 1           # minimum allowed T
+  max_T: 16          # maximum allowed T
+  noise_type: "uniform"   # quantization noise type: uniform | gaussian
+  noise_prob: 0.5    # probability of applying noise per forward call during training
+  scale: 1.0         # initial value for the learnable per-neuron input scale

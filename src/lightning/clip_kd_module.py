@@ -194,6 +194,23 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
                 if not clean.startswith("visual") and clean != "logit_scale":
                     param.requires_grad_(False)
 
+        # Register persistent forward hooks on teacher transformer blocks for activation matching.
+        # Hooks collect per-block CLS tokens ([B, hidden_dim]) during each teacher forward pass.
+        if float(self.cfg.loss.get("alpha_am", 0.0)) > 0:
+            self._t_intermediates: list[torch.Tensor] = []
+            for block in self.teacher.model.visual.transformer.resblocks:
+                block.register_forward_hook(self._teacher_act_hook)
+
+    def _teacher_act_hook(
+        self,
+        module: nn.Module,
+        input: tuple,
+        output: torch.Tensor,
+    ) -> None:
+        """Collect full token sequences from each teacher transformer block."""
+        # output: [B, N+1, hidden_dim] (batch-first NLC from open_clip Transformer)
+        self._t_intermediates.append(output)
+
     # ------------------------------------------------------------------
     # Forward (used during inference / eval)
     # ------------------------------------------------------------------
@@ -210,22 +227,41 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         images, texts = batch
         mask_ratio = float(self.cfg.training.get("mask_ratio", 0.0))
 
+        use_am = float(self.cfg.loss.get("alpha_am", 0.0)) > 0
+
         # ------ Student forward (un-normalised raw features) ------
         # distill=True sets normalize=False in encode_image/encode_text
         # Bug fix: when mask_ratio > 0, call mask_forward explicitly to
         # avoid the overwrite bug in the original encode_image (model.py L195).
-        if mask_ratio > 0.0:
+        # When activation matching is active we use encode_image_with_intermediates()
+        # to get per-iteration CLS states in a single visual forward pass.
+        if use_am and mask_ratio == 0.0:
+            s_img_raw, s_intermediates = self.student.model.encode_image_with_intermediates(images)
+            s_txt_raw = self.student.encode_text(texts, normalize=False)
+            s_logit_scale = self.student.logit_scale.exp()
+        elif mask_ratio > 0.0:
             s_img_raw = self.student.visual.mask_forward(images, mask_ratio)
             s_txt_raw = self.student.encode_text(texts, normalize=False)
             s_logit_scale = self.student.logit_scale.exp()
+            s_intermediates = None
         else:
             s_img_raw, s_txt_raw, s_logit_scale = self.student(
                 images, texts, distill=True, mask_ratio=0.0
             )
+            s_intermediates = None
 
         # ------ Teacher forward (normalised, no grad) ------
+        # When AM is active, hooks on teacher.model.visual.transformer.resblocks
+        # collect per-block CLS tokens into self._t_intermediates during this call.
+        if use_am:
+            self._t_intermediates.clear()
         with torch.no_grad():
             t_img_norm, t_txt_norm, t_logit_scale = self.teacher(images, texts)
+        if use_am:
+            t_intermediates: list[torch.Tensor] | None = list(self._t_intermediates)
+            self._t_intermediates.clear()
+        else:
+            t_intermediates = None
 
         # ------ Gather across GPUs ------
         world_size = self.trainer.world_size
@@ -274,6 +310,8 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
             s_logit_scale=s_logit_scale,
             t_logit_scale=t_logit_scale,
             labels=labels,
+            s_intermediates=s_intermediates,
+            t_intermediates=t_intermediates,
         )
 
         # ------ Compute composite loss ------

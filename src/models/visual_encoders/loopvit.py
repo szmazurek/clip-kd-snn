@@ -68,7 +68,9 @@ class LoopViT(nn.Module):
         super().__init__()
 
         if loop_mode not in ("global", "per_block"):
-            raise ValueError(f"loop_mode must be 'global' or 'per_block', got {loop_mode!r}")
+            raise ValueError(
+                f"loop_mode must be 'global' or 'per_block', got {loop_mode!r}"
+            )
         if loop_mode == "per_block":
             if loop_schedule is None:
                 raise ValueError("loop_schedule is required when loop_mode='per_block'")
@@ -79,9 +81,13 @@ class LoopViT(nn.Module):
             if any(s < 1 for s in loop_schedule):
                 raise ValueError("all values in loop_schedule must be >= 1")
             if add_step_embeddings:
-                raise ValueError("add_step_embeddings is not supported in loop_mode='per_block'")
+                raise ValueError(
+                    "add_step_embeddings is not supported in loop_mode='per_block'"
+                )
             if use_exit_gate:
-                raise ValueError("use_exit_gate is not supported in loop_mode='per_block'")
+                raise ValueError(
+                    "use_exit_gate is not supported in loop_mode='per_block'"
+                )
 
         self.embed_dim = embed_dim
         self.max_loop_steps = max_loop_steps
@@ -106,17 +112,19 @@ class LoopViT(nn.Module):
             self.blocks = None
         else:  # per_block
             self.encoder = None
-            self.blocks = nn.ModuleList([
-                TransformerEncoder(
-                    dim=embed_dim,
-                    depth=1,
-                    num_heads=num_heads,
-                    dropout=dropout,
-                    final_norm=False,
-                    swiglu=swiglu,
-                )
-                for _ in range(loop_core_depth)
-            ])
+            self.blocks = nn.ModuleList(
+                [
+                    TransformerEncoder(
+                        dim=embed_dim,
+                        depth=1,
+                        num_heads=num_heads,
+                        dropout=dropout,
+                        final_norm=False,
+                        swiglu=swiglu,
+                    )
+                    for _ in range(loop_core_depth)
+                ]
+            )
             self.max_loop_steps = sum(loop_schedule)
 
         self.patch = PatchEmbed(
@@ -207,7 +215,9 @@ class LoopViT(nn.Module):
             for step in range(self.max_loop_steps):
                 if self.step_embed is not None:
                     embed_step = min(step, self.step_embed.num_embeddings - 1)
-                    running_hidden = running_hidden + self.step_embed.weight[embed_step].view(1, 1, -1)
+                    running_hidden = running_hidden + self.step_embed.weight[
+                        embed_step
+                    ].view(1, 1, -1)
                 running_hidden = self.encoder(running_hidden)
         else:  # per_block: each block runs its scheduled number of steps sequentially
             for block, n_steps in zip(self.blocks, self.loop_schedule):
@@ -216,6 +226,37 @@ class LoopViT(nn.Module):
 
         final_states = self.head_norm(running_hidden)
         return final_states[:, 0, :]
+
+    def forward_features_with_intermediates(
+        self, images: torch.Tensor
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Like forward_features() but also returns full hidden sequences after each iteration.
+
+        Returns:
+            Tuple of:
+                [B, embed_dim] CLS token (same as forward_features()).
+                List of [B, N, embed_dim] full token sequences (pre head_norm) after each iteration.
+        """
+        running_hidden = self.image_tokens(images)
+        intermediates: list[torch.Tensor] = []
+
+        if self.loop_mode == "global":
+            for step in range(self.max_loop_steps):
+                if self.step_embed is not None:
+                    embed_step = min(step, self.step_embed.num_embeddings - 1)
+                    running_hidden = running_hidden + self.step_embed.weight[
+                        embed_step
+                    ].view(1, 1, -1)
+                running_hidden = self.encoder(running_hidden)
+                intermediates.append(running_hidden)
+        else:  # per_block
+            for block, n_steps in zip(self.blocks, self.loop_schedule):
+                for _ in range(n_steps):
+                    running_hidden = block(running_hidden)
+                    intermediates.append(running_hidden)
+
+        final_states = self.head_norm(running_hidden)
+        return final_states[:, 0, :], intermediates
 
     def forward(
         self,

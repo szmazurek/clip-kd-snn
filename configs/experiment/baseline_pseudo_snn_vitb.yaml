@@ -1,0 +1,21 @@
+# @package _global_
+# Baseline CLIP training with PseudoSNN SEWResNet18 image encoder and ViT-B/16 text encoder.
+# No knowledge distillation — trains purely with the standard CLIP InfoNCE loss.
+# Visual embedding dim: 512 (no projection needed; matches ViT-B/16 text dim).
+defaults:
+  - override /model: pseudo_snn_vitb
+  - override /loss: clip_only
+  - override /dataset: cc3m
+  - _self_
+
+exp_name: baseline_pseudo_snn_vitb
+
+dataset:
+  train_root: /data/cc3m/images
+  train_csv: /data/cc3m/train.tsv
+
+training:
+  epochs: 32
+  batch_size: 128
+  warmup_steps: 1000
+  lr: 1.0e-3

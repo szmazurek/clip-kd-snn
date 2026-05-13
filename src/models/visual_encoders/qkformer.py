@@ -41,7 +41,8 @@ class SNNParams:
 
     Attributes:
         neuron_type: Neuron model. One of 'lif', 'sj_lif', 'plif', 'nlif', 'glif',
-                     'psn', 'masked_psn', 'sliding_psn'.
+                     'psn', 'masked_psn', 'sliding_psn',
+                     'sj_psn', 'sj_masked_psn', 'sj_sliding_psn'.
         v_threshold: Spike threshold voltage (default 1.0).
         tau: Membrane time constant (default 2.0).
         backend: Computation backend for sj_lif/plif/glif. 'torch' is always safe;
@@ -119,10 +120,23 @@ def _build_lif_node(snn: SNNParams, v_threshold: Optional[float] = None) -> nn.M
     if snn.neuron_type == "sliding_psn":
         return PSNAdapter(CompileFriendlySlidingPSN(T=snn.T, k=snn.psn_k), T=snn.T)
 
+    # SpikingJelly PSN variants — use torch.autograd.Function for surrogate
+    # gradients, which causes graph breaks under torch.compile.  Useful for
+    # profiling comparisons against the compile-friendly variants above.
+    from spikingjelly.activation_based.neuron import psn as _sj_psn
+
+    if snn.neuron_type == "sj_psn":
+        return PSNAdapter(_sj_psn.PSN(T=snn.T), T=snn.T)
+    if snn.neuron_type == "sj_masked_psn":
+        return PSNAdapter(_sj_psn.MaskedPSN(T=snn.T, k=snn.psn_k, step_mode="m"), T=snn.T)
+    if snn.neuron_type == "sj_sliding_psn":
+        return PSNAdapter(_sj_psn.SlidingPSN(k=snn.psn_k, step_mode="m", backend=snn.psn_backend), T=snn.T)
+
     raise ValueError(
         f"Unknown neuron_type '{snn.neuron_type}'. "
         "Choose from: 'lif', 'sj_lif', 'plif', 'nlif', 'glif', "
-        "'psn', 'masked_psn', 'sliding_psn'."
+        "'psn', 'masked_psn', 'sliding_psn', "
+        "'sj_psn', 'sj_masked_psn', 'sj_sliding_psn'."
     )
 
 
@@ -223,24 +237,35 @@ class Token_QK_Attention(nn.Module):
         T, B, C, N = x.shape
         x_for_qkv = x.flatten(0, 1)              # [T*B, C, N]
 
-        q_conv_out = self.q_conv(x_for_qkv)
-        q_conv_out = self.q_bn(q_conv_out).reshape(T, B, C, N)
-        q_conv_out = self.q_lif(q_conv_out)
+        with torch.profiler.record_function("tqk/q_conv"):
+            q_conv_out = self.q_conv(x_for_qkv)
+        with torch.profiler.record_function("tqk/q_bn"):
+            q_conv_out = self.q_bn(q_conv_out).reshape(T, B, C, N)
+        with torch.profiler.record_function("tqk/q_lif"):
+            q_conv_out = self.q_lif(q_conv_out)
         q = q_conv_out.unsqueeze(2).reshape(T, B, self.num_heads, C // self.num_heads, N)
 
-        k_conv_out = self.k_conv(x_for_qkv)
-        k_conv_out = self.k_bn(k_conv_out).reshape(T, B, C, N)
-        k_conv_out = self.k_lif(k_conv_out)
+        with torch.profiler.record_function("tqk/k_conv"):
+            k_conv_out = self.k_conv(x_for_qkv)
+        with torch.profiler.record_function("tqk/k_bn"):
+            k_conv_out = self.k_bn(k_conv_out).reshape(T, B, C, N)
+        with torch.profiler.record_function("tqk/k_lif"):
+            k_conv_out = self.k_lif(k_conv_out)
         k = k_conv_out.unsqueeze(2).reshape(T, B, self.num_heads, C // self.num_heads, N)
 
         # Attention gate: sum Q over the head-dim dimension, spike it, multiply K
-        q = torch.sum(q, dim=3, keepdim=True)    # [T, B, heads, 1, N]
-        attn = self.attn_lif(q)
-        x = torch.mul(attn, k)                   # [T, B, heads, C//heads, N]
+        with torch.profiler.record_function("tqk/q_sum"):
+            q = torch.sum(q, dim=3, keepdim=True)    # [T, B, heads, 1, N]
+        with torch.profiler.record_function("tqk/attn_lif"):
+            attn = self.attn_lif(q)
+        with torch.profiler.record_function("tqk/attn_mul_k"):
+            x = torch.mul(attn, k)                   # [T, B, heads, C//heads, N]
 
         x = x.flatten(2, 3)                      # [T, B, C, N]
-        x = self.proj_bn(self.proj_conv(x.flatten(0, 1))).reshape(T, B, C, H, W)
-        x = self.proj_lif(x)
+        with torch.profiler.record_function("tqk/proj_conv"):
+            x = self.proj_bn(self.proj_conv(x.flatten(0, 1))).reshape(T, B, C, H, W)
+        with torch.profiler.record_function("tqk/proj_lif"):
+            x = self.proj_lif(x)
         return x
 
 
@@ -297,35 +322,50 @@ class Spiking_Self_Attention(nn.Module):
         T, B, C, N = x.shape
         x_for_qkv = x.flatten(0, 1)              # [T*B, C, N]
 
-        q_conv_out = self.q_conv(x_for_qkv)
-        q_conv_out = self.q_bn(q_conv_out).reshape(T, B, C, N).contiguous()
-        q_conv_out = self.q_lif(q_conv_out)
+        with torch.profiler.record_function("ssa/q_conv"):
+            q_conv_out = self.q_conv(x_for_qkv)
+        with torch.profiler.record_function("ssa/q_bn"):
+            q_conv_out = self.q_bn(q_conv_out).reshape(T, B, C, N).contiguous()
+        with torch.profiler.record_function("ssa/q_lif"):
+            q_conv_out = self.q_lif(q_conv_out)
         q = (q_conv_out.transpose(-1, -2)
              .reshape(T, B, N, self.num_heads, C // self.num_heads)
              .permute(0, 1, 3, 2, 4).contiguous())   # [T, B, heads, N, C//heads]
 
-        k_conv_out = self.k_conv(x_for_qkv)
-        k_conv_out = self.k_bn(k_conv_out).reshape(T, B, C, N).contiguous()
-        k_conv_out = self.k_lif(k_conv_out)
+        with torch.profiler.record_function("ssa/k_conv"):
+            k_conv_out = self.k_conv(x_for_qkv)
+        with torch.profiler.record_function("ssa/k_bn"):
+            k_conv_out = self.k_bn(k_conv_out).reshape(T, B, C, N).contiguous()
+        with torch.profiler.record_function("ssa/k_lif"):
+            k_conv_out = self.k_lif(k_conv_out)
         k = (k_conv_out.transpose(-1, -2)
              .reshape(T, B, N, self.num_heads, C // self.num_heads)
              .permute(0, 1, 3, 2, 4).contiguous())
 
-        v_conv_out = self.v_conv(x_for_qkv)
-        v_conv_out = self.v_bn(v_conv_out).reshape(T, B, C, N).contiguous()
-        v_conv_out = self.v_lif(v_conv_out)
+        with torch.profiler.record_function("ssa/v_conv"):
+            v_conv_out = self.v_conv(x_for_qkv)
+        with torch.profiler.record_function("ssa/v_bn"):
+            v_conv_out = self.v_bn(v_conv_out).reshape(T, B, C, N).contiguous()
+        with torch.profiler.record_function("ssa/v_lif"):
+            v_conv_out = self.v_lif(v_conv_out)
         v = (v_conv_out.transpose(-1, -2)
              .reshape(T, B, N, self.num_heads, C // self.num_heads)
              .permute(0, 1, 3, 2, 4).contiguous())
 
         # Spiking attention: Q @ (K^T @ V) * scale
-        x = k.transpose(-2, -1) @ v             # [T, B, heads, C//heads, C//heads]
-        x = (q @ x) * self.scale                # [T, B, heads, N, C//heads]
+        with torch.profiler.record_function("ssa/k_T_at_v"):
+            x = k.transpose(-2, -1) @ v         # [T, B, heads, C//heads, C//heads]
+        with torch.profiler.record_function("ssa/q_at_kv"):
+            x = (q @ x) * self.scale            # [T, B, heads, N, C//heads]
 
         x = x.transpose(3, 4).reshape(T, B, C, N).contiguous()
-        x = self.attn_lif(x)
+        with torch.profiler.record_function("ssa/attn_lif"):
+            x = self.attn_lif(x)
         x = x.flatten(0, 1)                     # [T*B, C, N]
-        x = self.proj_lif(self.proj_bn(self.proj_conv(x))).reshape(T, B, C, W, H)
+        with torch.profiler.record_function("ssa/proj_conv"):
+            x = self.proj_bn(self.proj_conv(x))
+        with torch.profiler.record_function("ssa/proj_lif"):
+            x = self.proj_lif(x.reshape(T, B, C, W, H))
         return x
 
 
