@@ -14,6 +14,7 @@ from torch import nn
 from torch.optim.lr_scheduler import LambdaLR
 
 from ..losses.clip_loss import CLIPInfoNCELoss
+from ..losses.sigreg import find_visual_blocks, sigreg_weak_loss
 from ..models.factory import build_student_model
 from ..utils.distributed import gather_features
 from ..utils.misc import cosine_lr_lambda, exclude_weight_decay
@@ -91,6 +92,41 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
 
         self.loss_fn = CLIPInfoNCELoss()
 
+        # SigREG state (populated in setup() when alpha_sigreg > 0)
+        self._sigreg_active: bool = float(cfg.loss.get("alpha_sigreg", 0.0)) > 0
+        self._sigreg_sketch_dim: int = int(cfg.loss.get("sigreg_sketch_dim", 64))
+        self._s_sigreg_accum: torch.Tensor | None = None
+        self._s_sigreg_count: int = 0
+
+    # ------------------------------------------------------------------
+    # Setup: register SigREG hooks on student visual blocks
+    # ------------------------------------------------------------------
+
+    def setup(self, stage: str | None = None) -> None:
+        if not self._sigreg_active:
+            return
+        blocks = find_visual_blocks(self.student.model.visual)
+        for block in blocks:
+            block.register_forward_hook(self._s_sigreg_hook)
+        if blocks:
+            print(f"[SigREG] registered hooks on {len(blocks)} student visual blocks "
+                  f"(sketch_dim={self._sigreg_sketch_dim})")
+
+    def _s_sigreg_hook(
+        self,
+        module: nn.Module,
+        input: tuple,
+        output: torch.Tensor,
+    ) -> None:
+        # output: [B, N+1, D] — batch-first NLC from open_clip Transformer
+        flat = output.mean(dim=1)  # [B, D]
+        block_loss = sigreg_weak_loss(flat, self._sigreg_sketch_dim)
+        if self._s_sigreg_accum is None:
+            self._s_sigreg_accum = block_loss
+        else:
+            self._s_sigreg_accum = self._s_sigreg_accum + block_loss
+        self._s_sigreg_count += 1
+
     # ------------------------------------------------------------------
     # Forward
     # ------------------------------------------------------------------
@@ -104,6 +140,11 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         images, texts = batch
+
+        # Reset SigREG accumulators — hooks fill them during student forward
+        self._s_sigreg_accum = None
+        self._s_sigreg_count = 0
+
         # distill=False → L2-normalised embeddings
         img_feats, txt_feats, logit_scale = self.student(images, texts)
 
@@ -138,6 +179,13 @@ class CLIPModule(ZeroShotEvalMixin, L.LightningModule):
             labels=labels,
         )
         loss = self.loss_fn(features)
+
+        # SigREG regularization (no-op when alpha_sigreg == 0)
+        if self._sigreg_active and self._s_sigreg_count > 0:
+            alpha_sigreg = float(self.cfg.loss.get("alpha_sigreg", 0.0))
+            sigreg_val = self._s_sigreg_accum / self._s_sigreg_count
+            loss = loss + alpha_sigreg * sigreg_val
+            self.log("train_sigreg_loss", sigreg_val.detach(), on_step=True, on_epoch=False, prog_bar=True)
 
         # Diagnostics
         self.log(

@@ -18,11 +18,11 @@ Usage – global LoopViT (1 shared block × N steps):
         --label "LoopViT-global (1×12)" \\
         --mode loopvit_global --max_loop_steps 12 --out ffn_rank_loopvit_global.png
 
-Usage – per-block LoopViT with custom schedule:
+Usage – per-block LoopViT (loop_core_depth blocks × max_loop_steps iterations):
     python scripts/analyze_ffn_rank.py \\
         --checkpoint outputs/.../last.ckpt \\
-        --label "LoopViT-perblock [1,10,1]" \\
-        --mode loopvit_perblock --loop_schedule 1,10,1 --out ffn_rank_perblock.png
+        --label "LoopViT-perblock (2×12)" \\
+        --mode loopvit_perblock --max_loop_steps 12 --loop_core_depth 2 --out ffn_rank_perblock.png
 
 Multiple --checkpoint / --label pairs overlay on the same figure.
 """
@@ -162,28 +162,31 @@ def extract_ranks_global_loopvit(sd: dict, threshold: float, max_loop_steps: int
     return step_indices, in_ranks, out_ranks
 
 
-def extract_ranks_perblock(sd: dict, threshold: float, loop_schedule: list[int], swiglu: bool):
+def extract_ranks_perblock(
+    sd: dict, threshold: float, max_loop_steps: int, loop_core_depth: int, swiglu: bool
+):
     """
-    Per-block LoopViT.  Block i has distinct weights and runs loop_schedule[i] times.
-    Returns x-positions over the entire unrolled step sequence, plus block boundaries.
+    Per-block LoopViT with constant schedule.
+    Each outer block has loop_core_depth inner blocks, all repeated max_loop_steps times.
+    Returns x-positions over the entire unrolled sequence, plus outer-block boundaries.
     """
     n = _max_index(sd, r"visual\.blocks\.(\d+)\.") + 1
-    if len(loop_schedule) != n:
-        raise ValueError(
-            f"--loop_schedule has {len(loop_schedule)} entries but checkpoint has {n} blocks"
-        )
     step_indices, in_ranks, out_ranks, boundaries = [], [], [], []
     step = 0
-    for i, n_steps in enumerate(loop_schedule):
+    for i in range(n):
         boundaries.append((step, i))
-        w_in, w_out = _get_in_out_custom(sd, f"model.visual.blocks.{i}.blocks.0", swiglu)
-        ir = energy_rank(w_in, threshold)
-        or_ = energy_rank(w_out, threshold)
-        for _ in range(n_steps):
-            step_indices.append(step)
-            in_ranks.append(ir)
-            out_ranks.append(or_)
-            step += 1
+        inner_ranks = []
+        for j in range(loop_core_depth):
+            w_in, w_out = _get_in_out_custom(
+                sd, f"model.visual.blocks.{i}.blocks.{j}", swiglu
+            )
+            inner_ranks.append((energy_rank(w_in, threshold), energy_rank(w_out, threshold)))
+        for _ in range(max_loop_steps):
+            for j in range(loop_core_depth):
+                step_indices.append(step)
+                in_ranks.append(inner_ranks[j][0])
+                out_ranks.append(inner_ranks[j][1])
+                step += 1
     return step_indices, in_ranks, out_ranks, boundaries
 
 
@@ -251,17 +254,16 @@ def main():
         required=True,
     )
     parser.add_argument(
-        "--loop_schedule",
-        type=str,
-        default=None,
-        metavar="N,N,...",
-        help="Comma-separated per-block step counts (loopvit_perblock only), e.g. 1,10,1",
-    )
-    parser.add_argument(
         "--max_loop_steps",
         type=int,
         default=None,
-        help="Total loop steps (loopvit_global only); required when mode=loopvit_global",
+        help="Number of loop iterations; required when mode=loopvit_global or loopvit_perblock",
+    )
+    parser.add_argument(
+        "--loop_core_depth",
+        type=int,
+        default=1,
+        help="Number of inner blocks per loop cell (loopvit_perblock only, default: 1)",
     )
     parser.add_argument("--threshold", type=float, default=0.95,
                         help="Energy fraction threshold (default: 0.95)")
@@ -270,21 +272,14 @@ def main():
     args = parser.parse_args()
 
     # Validate mode-specific args
-    if args.mode == "loopvit_global" and args.max_loop_steps is None:
-        parser.error("--max_loop_steps is required when --mode loopvit_global")
-    if args.mode == "loopvit_perblock" and args.loop_schedule is None:
-        parser.error("--loop_schedule is required when --mode loopvit_perblock")
+    if args.mode in ("loopvit_global", "loopvit_perblock") and args.max_loop_steps is None:
+        parser.error("--max_loop_steps is required when --mode loopvit_global or loopvit_perblock")
 
     checkpoints = args.checkpoint
     labels = list(args.label) if args.label else []
     while len(labels) < len(checkpoints):
         labels.append(Path(checkpoints[len(labels)]).parent.parent.name)
 
-    loop_schedule = (
-        [int(x) for x in args.loop_schedule.split(",")]
-        if args.loop_schedule
-        else None
-    )
     pct = int(args.threshold * 100)
     palette = plt.cm.tab10.colors
 
@@ -313,12 +308,18 @@ def main():
 
         elif args.mode == "loopvit_perblock":
             xs, ir, or_, bounds = extract_ranks_perblock(
-                sd, args.threshold, loop_schedule, swiglu
+                sd, args.threshold, args.max_loop_steps, args.loop_core_depth, swiglu
             )
             _add_perblock_lines(ax, xs, ir, or_, bounds, label, args.threshold)
 
     ax.set_ylabel(f"{pct}% energy rank")
-    ax.set_xlabel("Block index" if args.mode == "vit" else "Loop step")
+    if args.mode == "vit":
+        xlabel = "Block index"
+    elif args.mode == "loopvit_perblock" and args.loop_core_depth > 1:
+        xlabel = "Block application (step × core depth)"
+    else:
+        xlabel = "Loop step"
+    ax.set_xlabel(xlabel)
     title_models = " vs ".join(labels) if len(labels) > 1 else labels[0]
     ax.set_title(f"FFN {pct}% energy rank – {title_models}")
     ax.grid(True, alpha=0.3)

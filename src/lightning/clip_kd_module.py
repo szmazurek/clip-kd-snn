@@ -26,6 +26,7 @@ from torch.optim.lr_scheduler import LambdaLR
 
 from ..losses.base import KDFeatures
 from ..losses.factory import build_loss
+from ..losses.sigreg import find_visual_blocks, sigreg_weak_loss
 from ..models.factory import build_student_model, build_teacher_model, get_embed_dim
 from ..utils.distributed import gather_features
 from ..utils.misc import cosine_lr_lambda, exclude_weight_decay
@@ -89,6 +90,12 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
 
         # Composite loss (contains AFD fusion projections + ICL cross_logit_scale)
         self.loss_fn = build_loss(cfg.loss, self.s_dim, self.t_dim)
+
+        # SigREG state (populated in setup() when alpha_sigreg > 0)
+        self._sigreg_active: bool = float(cfg.loss.get("alpha_sigreg", 0.0)) > 0
+        self._sigreg_sketch_dim: int = int(cfg.loss.get("sigreg_sketch_dim", 64))
+        self._s_sigreg_accum: torch.Tensor | None = None
+        self._s_sigreg_count: int = 0
 
     # ------------------------------------------------------------------
     # Setup: load teacher checkpoint
@@ -201,6 +208,15 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
             for block in self.teacher.model.visual.transformer.resblocks:
                 block.register_forward_hook(self._teacher_act_hook)
 
+        # Register SigREG hooks on student visual blocks.
+        if self._sigreg_active:
+            blocks = find_visual_blocks(self.student.model.visual)
+            for block in blocks:
+                block.register_forward_hook(self._s_sigreg_hook)
+            if blocks:
+                print(f"[SigREG] registered hooks on {len(blocks)} student visual blocks "
+                      f"(sketch_dim={self._sigreg_sketch_dim})")
+
     def _teacher_act_hook(
         self,
         module: nn.Module,
@@ -210,6 +226,22 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         """Collect full token sequences from each teacher transformer block."""
         # output: [B, N+1, hidden_dim] (batch-first NLC from open_clip Transformer)
         self._t_intermediates.append(output)
+
+    def _s_sigreg_hook(
+        self,
+        module: nn.Module,
+        input: tuple,
+        output: torch.Tensor,
+    ) -> None:
+        """Accumulate per-block SigREG loss from student visual blocks."""
+        # output: [B, N+1, D] — batch-first NLC from open_clip Transformer
+        flat = output.mean(dim=1)  # mean-pool tokens → [B, D]
+        block_loss = sigreg_weak_loss(flat, self._sigreg_sketch_dim)
+        if self._s_sigreg_accum is None:
+            self._s_sigreg_accum = block_loss
+        else:
+            self._s_sigreg_accum = self._s_sigreg_accum + block_loss
+        self._s_sigreg_count += 1
 
     # ------------------------------------------------------------------
     # Forward (used during inference / eval)
@@ -228,6 +260,10 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         mask_ratio = float(self.cfg.training.get("mask_ratio", 0.0))
 
         use_am = float(self.cfg.loss.get("alpha_am", 0.0)) > 0
+
+        # Reset SigREG accumulators — hooks fill them during student forward
+        self._s_sigreg_accum = None
+        self._s_sigreg_count = 0
 
         # ------ Student forward (un-normalised raw features) ------
         # distill=True sets normalize=False in encode_image/encode_text
@@ -316,6 +352,14 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
 
         # ------ Compute composite loss ------
         total_loss, loss_dict = self.loss_fn(features)
+
+        # SigREG regularization (no-op when alpha_sigreg == 0)
+        if self._sigreg_active and self._s_sigreg_count > 0:
+            alpha_sigreg = float(self.cfg.loss.get("alpha_sigreg", 0.0))
+            sigreg_val = self._s_sigreg_accum / self._s_sigreg_count
+            total_loss = total_loss + alpha_sigreg * sigreg_val
+            loss_dict["sigreg"] = sigreg_val.detach()
+
         if not total_loss.isfinite():
             self.log("train_nan_skip", 1.0, on_step=True, sync_dist=False)
             return None

@@ -43,6 +43,9 @@ class PseudoSNNImageNetModule(L.LightningModule):
         penalty: float = 1e-2,
         compile_snn: bool = False,
         compile_mode: str = "default",
+        optimizer: str = "adamw",
+        sgd_momentum: float = 0.9,
+        sgd_nesterov: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -50,6 +53,9 @@ class PseudoSNNImageNetModule(L.LightningModule):
         self.weight_decay = weight_decay
         self.warmup_steps = warmup_steps
         self.penalty = penalty
+        self.optimizer_name = optimizer
+        self.sgd_momentum = sgd_momentum
+        self.sgd_nesterov = sgd_nesterov
 
         if compile_snn:
             model = torch.compile(model, fullgraph=True, mode=compile_mode)
@@ -124,15 +130,28 @@ class PseudoSNNImageNetModule(L.LightningModule):
     def configure_optimizers(self):
         # PseudoNeuron.logit / scale / bias are 0-D or 1-D → caught by exclude_weight_decay
         no_wd, wd_params = exclude_weight_decay(list(self.model.named_parameters()))
-        optimizer = torch.optim.AdamW(
-            [
-                {"params": no_wd, "weight_decay": 0.0},
-                {"params": wd_params, "weight_decay": self.weight_decay},
-            ],
-            lr=self.lr,
-            betas=(0.9, 0.999),
-            eps=1e-8,
-        )
+
+        if self.optimizer_name == "sgd":
+            optimizer = torch.optim.SGD(
+                [
+                    {"params": no_wd, "weight_decay": 0.0},
+                    {"params": wd_params, "weight_decay": self.weight_decay},
+                ],
+                lr=self.lr,
+                momentum=self.sgd_momentum,
+                nesterov=self.sgd_nesterov,
+            )
+        else:
+            optimizer = torch.optim.AdamW(
+                [
+                    {"params": no_wd, "weight_decay": 0.0},
+                    {"params": wd_params, "weight_decay": self.weight_decay},
+                ],
+                lr=self.lr,
+                betas=(0.9, 0.999),
+                eps=1e-8,
+            )
+
         total_steps = self.trainer.estimated_stepping_batches
         lr_lambda = cosine_lr_lambda(
             warmup_steps=self.warmup_steps,

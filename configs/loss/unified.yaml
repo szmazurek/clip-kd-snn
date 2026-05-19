@@ -14,6 +14,8 @@ alpha_mfd: 0.0
 alpha_am: 1.0
 alpha_gd: 0.0
 alpha_afd: 0.0
+alpha_sigreg: 0.0
+sigreg_sketch_dim: 64
 
 gather_with_grad: false
 local_loss: false
