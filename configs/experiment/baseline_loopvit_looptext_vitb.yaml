@@ -1,0 +1,17 @@
+# @package _global_
+# Baseline CLIP training with LoopViT image encoder + LoopText text encoder.
+# Both encoders: 1 shared transformer block applied 12 times recurrently.
+# No knowledge distillation — trains with standard CLIP InfoNCE loss.
+defaults:
+  - override /model: loopvit_looptext_vitb
+  - override /loss: clip_only
+  - override /dataset: cc3m
+  - _self_
+
+exp_name: baseline_loopvit_looptext_vitb
+
+training:
+  epochs: 32
+  batch_size: 128
+  warmup_steps: 10000
+  lr: 1.0e-3

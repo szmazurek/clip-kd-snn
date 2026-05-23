@@ -100,6 +100,21 @@ def _is_sewresnet(name: str) -> bool:
     return name.startswith(_SEWRESNET_PREFIX)
 
 
+# ---------------------------------------------------------------------------
+# LoopViT + LoopText (both encoders recurrent) model registry
+# ---------------------------------------------------------------------------
+
+_LOOPVIT_LOOPTEXT_PREFIX = "LoopViTLoopText-"
+
+_LOOPVIT_LOOPTEXT_EMBED_DIMS: dict[str, int] = {
+    "LoopViTLoopText-ViT-B-16": 512,
+}
+
+
+def _is_loopvit_looptext(name: str) -> bool:
+    return name.startswith(_LOOPVIT_LOOPTEXT_PREFIX)
+
+
 def _build_loopvit_student_model(
     cfg: DictConfig,
 ) -> tuple[nn.Module, Callable, Callable]:
@@ -344,6 +359,86 @@ def _build_msvit_student_model(
     return CLIPWrapper(model), preprocess_train, preprocess_val
 
 
+def _build_loopvit_looptext_student_model(
+    cfg: DictConfig,
+) -> tuple[nn.Module, Callable, Callable]:
+    """Create student model with LoopViT image encoder + LoopText text encoder.
+
+    Both encoders share the same recurrent design: a small shared transformer
+    core applied repeatedly.  All text-side knobs are prefixed with ``text_``
+    in the config to avoid collisions with the vision-side params.
+
+    Args:
+        cfg: Hydra config.  Vision params are the same as for LoopViT.
+             Text params read:
+               cfg.model.text_width            – internal transformer width (default 512)
+               cfg.model.text_num_heads         – attention heads (default 8)
+               cfg.model.text_loop_core_depth   – blocks per loop step (default 1)
+               cfg.model.text_max_loop_steps    – recurrent iterations (default 12)
+               cfg.model.text_add_step_embeddings (default False)
+               cfg.model.text_dropout           (default 0.0)
+               cfg.model.text_embed_dim         – CLIP output dim (default 512)
+
+    Returns:
+        Tuple of (CLIPWrapper(LoopViTCLIPModel), preprocess_train, preprocess_val).
+    """
+    from .loopvit_clip import LoopViTCLIPModel
+    from .text_encoders.looptext import LoopText
+    from .visual_encoders.loopvit import LoopViT
+
+    # ---- Image preprocesses (from open_clip; model itself is discarded) -----
+    _, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
+        "ViT-B-16", pretrained=None
+    )
+
+    # ---- Visual encoder (LoopViT) — identical setup to _build_loopvit_student_model
+    visual_embed_dim = int(cfg.model.get("embed_dim", 768))
+    loop_mode = str(cfg.model.get("loop_mode", "global"))
+    loop_schedule_raw = cfg.model.get("loop_schedule", None)
+    loop_schedule = list(loop_schedule_raw) if loop_schedule_raw is not None else None
+    visual = LoopViT(
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        num_classes=0,
+        embed_dim=visual_embed_dim,
+        num_heads=int(cfg.model.get("num_heads", 12)),
+        mlp_ratio=float(cfg.model.get("mlp_ratio", 4.0)),
+        dropout=float(cfg.model.get("dropout", 0.0)),
+        loop_core_depth=int(cfg.model.get("loop_core_depth", 1)),
+        max_loop_steps=int(cfg.model.get("max_loop_steps", 12)),
+        min_loop_steps=int(cfg.model.get("min_loop_steps", 1)),
+        add_step_embeddings=bool(cfg.model.get("add_step_embeddings", False)),
+        use_exit_gate=bool(cfg.model.get("use_exit_gate", False)),
+        loop_mode=loop_mode,
+        loop_schedule=loop_schedule,
+    )
+
+    # ---- Text encoder (LoopText) -------------------------------------------
+    text_embed_dim = int(cfg.model.get("text_embed_dim", 512))
+    text_encoder = LoopText(
+        vocab_size=49408,
+        context_length=77,
+        embed_dim=text_embed_dim,
+        width=int(cfg.model.get("text_width", 512)),
+        num_heads=int(cfg.model.get("text_num_heads", 8)),
+        mlp_ratio=float(cfg.model.get("mlp_ratio", 4.0)),
+        dropout=float(cfg.model.get("text_dropout", 0.0)),
+        loop_core_depth=int(cfg.model.get("text_loop_core_depth", 1)),
+        max_loop_steps=int(cfg.model.get("text_max_loop_steps", 12)),
+        add_step_embeddings=bool(cfg.model.get("text_add_step_embeddings", False)),
+    )
+
+    # ---- Assemble CLIP model — reuse LoopViTCLIPModel as-is ----------------
+    model = LoopViTCLIPModel(
+        visual=visual,
+        text_model=text_encoder,
+        visual_embed_dim=visual_embed_dim,
+        text_embed_dim=text_embed_dim,
+    )
+    return CLIPWrapper(model), preprocess_train, preprocess_val
+
+
 def build_student_model(
     cfg: DictConfig,
 ) -> tuple[nn.Module, Callable, Callable]:
@@ -365,6 +460,8 @@ def build_student_model(
         return _build_msvit_student_model(cfg)
     if _is_qkformer(cfg.model.name):
         return _build_qkformer_student_model(cfg)
+    if _is_loopvit_looptext(cfg.model.name):
+        return _build_loopvit_looptext_student_model(cfg)
     if _is_loopvit(cfg.model.name):
         return _build_loopvit_student_model(cfg)
     if _is_sewresnet(cfg.model.name):
@@ -419,6 +516,8 @@ def get_embed_dim(model_name: str) -> int:
         return _MSVIT_EMBED_DIMS[model_name]
     if model_name in _QKFORMER_EMBED_DIMS:
         return _QKFORMER_EMBED_DIMS[model_name]
+    if model_name in _LOOPVIT_LOOPTEXT_EMBED_DIMS:
+        return _LOOPVIT_LOOPTEXT_EMBED_DIMS[model_name]
     if model_name in _LOOPVIT_EMBED_DIMS:
         return _LOOPVIT_EMBED_DIMS[model_name]
     if model_name in _SEWRESNET_EMBED_DIMS:

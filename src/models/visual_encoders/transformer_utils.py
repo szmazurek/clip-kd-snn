@@ -114,7 +114,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_dropout = nn.Dropout(proj_dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, is_causal: bool = False) -> torch.Tensor:
 
         B, N, D = x.shape
         qkv = self.qkv(x)
@@ -122,7 +122,7 @@ class MultiHeadSelfAttention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         dropout_p = self.attn_dropout.p if self.training else 0.0
-        x = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        x = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, is_causal=is_causal)
 
         x = x.transpose(1, 2).contiguous().view(B, N, D)
         x = self.proj(x)
@@ -157,8 +157,8 @@ class TransformerBlock(nn.Module):
         self.norm1 = RMSNorm(dim, eps=norm_eps, affine=True)
         self.norm2 = RMSNorm(dim, eps=norm_eps, affine=True)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.norm1(x))
+    def forward(self, x: torch.Tensor, is_causal: bool = False) -> torch.Tensor:
+        x = x + self.attn(self.norm1(x), is_causal=is_causal)
         x = x + self.mlp(self.norm2(x))
         return x
 

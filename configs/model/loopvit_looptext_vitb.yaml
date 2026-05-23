@@ -1,0 +1,42 @@
+# LoopViTLoopText-ViT-B-16: both encoders use the recurrent LoopViT design.
+# Vision: embed_dim=768, 12 heads, 1-layer loop core, 12 recurrent steps.
+# Text:   width=512,    8 heads,  1-layer loop core, 12 recurrent steps.
+# A linear projection maps visual 768 → 512 (text CLIP space).
+name: "LoopViTLoopText-ViT-B-16"
+
+# ---- Vision (LoopViT — identical to loopvit_vitb.yaml) --------------------
+embed_dim: 768
+num_heads: 12
+loop_core_depth: 1
+mlp_ratio: 4.0
+dropout: 0.0
+max_loop_steps: 12
+min_loop_steps: 1
+add_step_embeddings: false
+use_exit_gate: false
+
+# ---- Text (LoopText) -------------------------------------------------------
+text_embed_dim: 512          # CLIP output dimension (= projection output)
+text_width: 512              # internal transformer hidden dimension
+text_num_heads: 8
+text_loop_core_depth: 1      # shared blocks per loop step
+text_max_loop_steps: 12      # recurrent iterations
+text_min_loop_steps: 1
+text_add_step_embeddings: false
+text_dropout: 0.0
+
+pretrained: null
+student_checkpoint: null
+
+# Teacher fields (populated in experiment configs or via CLI override)
+teacher_name: null
+teacher_checkpoint: null
+teacher_pretrained: null
+
+# Student text encoder control (not applicable for LoopText — no pretrained weights)
+init_student_text_from_teacher: false
+freeze_student_text_encoder: false
+
+# torch.compile
+compile: true
+compile_mode: "reduce-overhead"
