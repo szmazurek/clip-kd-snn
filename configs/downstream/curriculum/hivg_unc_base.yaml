@@ -1,0 +1,32 @@
+# HiVG's literal multi-phase HiLoRA curriculum (HiVG/train_and_eval_script/
+# train_single_dataset_finetuning_base.sh, "unc" entry): warmup (no LoRA,
+# backbone fully frozen, only the new grounding heads train) -> stage1 ->
+# stage2 -> stage3 (cumulative vision HiLoRA + flat text HiLoRA), each phase
+# initialized from the previous phase's best checkpoint — weights only, a
+# fresh optimizer/LR schedule per phase (matches --hi_lora_retrain in the
+# original scripts, not a Lightning training-state resume).
+#
+# scripts/train_grounding_staged.py overrides model.hi_lora_stage and
+# training.{lr,epochs,batch_size} per phase; every other training/model/loss
+# setting comes from whatever base configs you select alongside this one.
+phases:
+  - name: warmup
+    hi_lora_stage: 0
+    epochs: 60
+    lr: 2.5e-4
+    batch_size: 80
+  - name: stage1
+    hi_lora_stage: 1
+    epochs: 20
+    lr: 1.0e-4
+    batch_size: 60
+  - name: stage2
+    hi_lora_stage: 2
+    epochs: 20
+    lr: 5.0e-5
+    batch_size: 60
+  - name: stage3
+    hi_lora_stage: 3
+    epochs: 20
+    lr: 2.5e-5
+    batch_size: 40

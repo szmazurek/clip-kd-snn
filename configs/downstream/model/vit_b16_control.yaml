@@ -1,0 +1,39 @@
+# HiVG grounding head on top of the standard (non-recurrent) ViT-B/16 control:
+# loop_core_depth=12, max_loop_steps=1 → 12 distinct blocks, each run once.
+# Matches configs/model/loopvit_vitb_noloop.yaml — set backbone_checkpoint to a
+# Lightning .ckpt produced by that config. This is the "full HiLoRA" baseline
+# (12 distinct adapters, matching standard HiVG) the LoopViT variants are compared against.
+name: "hivg_loopvit_control"
+
+# ---- Frozen backbone (must match the checkpoint's architecture exactly) ----
+visual_embed_dim: 768
+num_heads: 12
+mlp_ratio: 4.0
+loop_core_depth: 12
+max_loop_steps: 1
+min_loop_steps: 1
+add_step_embeddings: false
+loop_mode: "global"
+loop_schedule: null
+
+text_encoder: "open_clip"
+text_encoder_name: "ViT-B-16"
+embed_dim: 512
+text_seq_len: 77
+
+backbone_checkpoint: null    # path to a trained CLIP-KD Lightning .ckpt (REQUIRED)
+
+# ---- New grounding heads (trained from scratch) ----
+vl_hidden_dim: 512
+vl_nheads: 8
+vl_enc_layers: 6
+vl_dropout: 0.1
+num_patches: 196
+
+# ---- HiLoRA ----
+hilora_rank: 32
+hilora_alpha: 16.0
+# 12 distinct blocks → exact HiVG cumulative curriculum applies (stages unlock 5/8/12 blocks).
+
+hi_lora_stage: 3   # 0=warmup (no LoRA), 1/2/3=cumulative vision HiLoRA + flat text HiLoRA (see GroundingModule.setup)
+text_lora: true    # flat (non-staged) LoRA on every text layer, active when hi_lora_stage >= 1

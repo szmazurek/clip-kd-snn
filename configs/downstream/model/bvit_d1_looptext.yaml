@@ -1,0 +1,44 @@
+# Same visual backbone as bvit_d1.yaml, but paired with a trained LoopText
+# text encoder instead of the frozen open_clip text tower.
+# Matches configs/model/loopvit_looptext_vitb.yaml — set backbone_checkpoint to a
+# Lightning .ckpt produced by that config (both visual and text_model are LoopViT/LoopText).
+name: "hivg_loopvit_d1_looptext"
+
+# ---- Frozen visual backbone ----
+visual_embed_dim: 768
+num_heads: 12
+mlp_ratio: 4.0
+loop_core_depth: 1
+max_loop_steps: 12
+min_loop_steps: 1
+add_step_embeddings: false
+loop_mode: "global"
+loop_schedule: null
+
+# ---- Frozen text backbone (LoopText) ----
+text_encoder: "looptext"
+embed_dim: 512
+text_seq_len: 77
+text_vocab_size: 49408
+text_width: 512
+text_num_heads: 8
+text_mlp_ratio: 4.0
+text_loop_core_depth: 1
+text_max_loop_steps: 12
+text_add_step_embeddings: false
+
+backbone_checkpoint: null    # path to a trained CLIP-KD Lightning .ckpt (REQUIRED)
+
+# ---- New grounding heads (trained from scratch) ----
+vl_hidden_dim: 512
+vl_nheads: 8
+vl_enc_layers: 6
+vl_dropout: 0.1
+num_patches: 196
+
+# ---- HiLoRA ----
+hilora_rank: 32
+hilora_alpha: 16.0
+
+hi_lora_stage: 3   # 0=warmup (no LoRA), 1/2/3=cumulative vision HiLoRA + flat text HiLoRA (see GroundingModule.setup)
+text_lora: true    # flat (non-staged) LoRA on every text layer, active when hi_lora_stage >= 1

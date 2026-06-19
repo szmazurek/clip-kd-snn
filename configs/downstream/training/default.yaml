@@ -1,0 +1,21 @@
+# HiVG-style fine-tuning schedule (small LR, few epochs — only HiLoRA adapters
+# and new grounding heads train; the backbone is frozen).
+lr: 1.0e-4
+beta1: 0.9
+beta2: 0.98
+eps: 1.0e-8
+weight_decay: 1.0e-4
+warmup_steps: 500
+epochs: 60
+batch_size: 64
+eval_batch_size: 64
+workers: 8
+eval_workers: 4
+prefetch_factor: 2
+precision: "bf16-mixed"
+grad_clip_norm: 0.1
+seed: 42
+zeroshot_frequency: 1        # check_val_every_n_epoch
+save_every_n_epochs: 5
+fast_dev_run: false
+resume_ckpt: null

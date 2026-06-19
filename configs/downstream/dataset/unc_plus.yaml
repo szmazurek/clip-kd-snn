@@ -1,0 +1,7 @@
+# RefCOCO+ — see src/downstream/datasets/refcoco.py
+name: "unc+"
+data_root: ${oc.env:SCRATCH}/grounding_data
+split_root: ${oc.env:SCRATCH}/grounding_data/data
+img_size: 224
+val_split: "val"
+test_splits: ["testA", "testB"]

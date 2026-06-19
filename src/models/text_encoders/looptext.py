@@ -129,3 +129,30 @@ class LoopText(nn.Module):
         x = self.text_projection(x)  # [B, embed_dim]
 
         return F.normalize(x, dim=-1) if normalize else x
+
+    def encode_text_with_hidden_states(
+        self, text: Tensor
+    ) -> tuple[Tensor, list[Tensor]]:
+        """Encode text and return EOS embedding plus per-block-execution hidden states.
+
+        Returns:
+            eos: [B, embed_dim] — same as encode_text(normalize=False).
+            hidden_states: list of [B, L, width] tensors, one per block execution
+                (len = max_loop_steps * loop_core_depth).
+        """
+        B, L = text.shape
+        positions = torch.arange(L, device=text.device)
+        x = self.token_embed(text) + self.pos_embed(positions)
+
+        hidden_states: list[Tensor] = []
+        for step in range(self.max_loop_steps):
+            if self.step_embed is not None:
+                x = x + self.step_embed.weight[step].view(1, 1, -1)
+            for block in self.blocks:
+                x = block(x, is_causal=True)
+                hidden_states.append(x)
+
+        x = self.ln_final(x)
+        eos_positions = text.argmax(dim=-1)
+        eos = self.text_projection(x[torch.arange(B, device=x.device), eos_positions])
+        return eos, hidden_states

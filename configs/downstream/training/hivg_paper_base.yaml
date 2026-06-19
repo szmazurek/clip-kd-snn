@@ -1,0 +1,31 @@
+# Matches HiVG's published base-model recipe for the "warmup" (pre-HiLoRA-stage)
+# phase — see HiVG/train_and_eval_script/train_single_dataset_finetuning_base.sh,
+# e.g. the unc entry: --epochs 60 --batch_size 80 --lr 0.00025 --lr_scheduler cosine
+# --aug_crop --aug_scale --aug_translate.
+#
+# For a single non-curriculum run comparable in length/schedule to the other
+# backbones already trained in this repo (bvit_d1 etc.), use this directly
+# with model.hi_lora_stage=3. For HiVG's literal warmup -> stage1 -> stage2 ->
+# stage3 curriculum (each phase resuming from the previous phase's best
+# checkpoint with its own lr/batch_size/epochs), use
+# scripts/train_grounding_staged.py with configs/downstream/curriculum/*.yaml
+# instead — this file's lr/batch_size become the curriculum's "warmup" phase.
+lr: 2.5e-4
+beta1: 0.9
+beta2: 0.98
+eps: 1.0e-8
+weight_decay: 1.0e-4
+warmup_steps: 500
+epochs: 60
+batch_size: 80
+eval_batch_size: 64
+workers: 8
+eval_workers: 4
+prefetch_factor: 2
+precision: "bf16-mixed"
+grad_clip_norm: 0.1
+seed: 42
+zeroshot_frequency: 1
+save_every_n_epochs: 5
+fast_dev_run: false
+resume_ckpt: null

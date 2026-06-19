@@ -1,0 +1,17 @@
+defaults:
+  - model: vit_b16_hf_clip_baseline
+  - dataset: unc
+  - loss: default
+  - training: hivg_paper_base
+  - curriculum: hivg_unc_base
+  - _self_
+
+exp_name: grounding_staged_run
+run_base_dir: outputs_grounding_staged
+
+hydra:
+  run:
+    dir: ${run_base_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: ${run_base_dir}/multirun/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}

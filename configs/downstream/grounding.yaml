@@ -1,0 +1,16 @@
+defaults:
+  - model: bvit_d1
+  - dataset: unc
+  - loss: default
+  - training: default
+  - _self_
+
+exp_name: grounding_run
+run_base_dir: outputs_grounding
+
+hydra:
+  run:
+    dir: ${run_base_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: ${run_base_dir}/multirun/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}

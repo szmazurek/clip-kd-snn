@@ -258,6 +258,21 @@ class LoopViT(nn.Module):
         final_states = self.head_norm(running_hidden)
         return final_states[:, 0, :], intermediates
 
+    def iter_blocks(self):
+        """Yield individual TransformerBlock objects in forward-execution order.
+
+        Produces exactly max_loop_steps * loop_core_depth block objects (counted
+        with multiplicity when weights are shared). Used by the grounding forward
+        path to intercept between individual block calls.
+        """
+        if self.loop_mode == "global":
+            for _ in range(self.max_loop_steps):
+                yield from self.encoder.blocks
+        else:  # per_block
+            for enc, n in zip(self.blocks, self.loop_schedule):
+                for _ in range(n):
+                    yield from enc.blocks
+
     def forward(
         self,
         images,

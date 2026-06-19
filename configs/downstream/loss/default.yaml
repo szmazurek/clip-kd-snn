@@ -1,0 +1,8 @@
+# Grounding loss weights — see src/downstream/losses/grounding_loss.py
+lambda_l1: 2.0
+lambda_giou: 2.0
+lambda_focal: 20.0
+lambda_dice: 2.0
+use_contrastive: true   # CLC: image-text contrastive
+use_rtcc: true           # RTCC: region-text contrastive (focal + dice vs. object mask)
+use_mask_loss: true      # HiVG's --use_mask_loss: focal + dice on a second, higher-res seg map (always on in their scripts)

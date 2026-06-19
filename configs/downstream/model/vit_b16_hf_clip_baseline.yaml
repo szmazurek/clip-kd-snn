@@ -1,0 +1,49 @@
+# HiVG grounding head on top of a genuine pretrained CLIP ViT-B/16, loaded
+# via HuggingFace transformers (not open_clip) — the "original CLIP Hugging
+# Face model" baseline HiVG/README.md documents as an alternative to their
+# MSCOCO-debiased clip_b_ml_cascade_maskrcnn checkpoint (which requires a
+# gated Google Drive download we don't have).
+#
+# HuggingFace specifically, not open_clip: HF's CLIPAttention exposes
+# separate q_proj/k_proj/v_proj/out_proj nn.Linear modules called via
+# ordinary forward() — exactly what HiVG's own released code's LoRA
+# target_modules list assumes. open_clip's fused nn.MultiheadAttention reads
+# its weights as raw tensors inside its forward (bypassing any submodule
+# wrap), so LoRA could only ever reach the MLP there — the inverse of what
+# HiVG's code actually adapts (attention only; its "fc_in"/"fc_out" target
+# names don't match CLIPMLP's real fc1/fc2 attribute names, so the MLP is
+# never touched in their released code either). See hilora.py.
+#
+# Real frozen CLIP backbone: 12 distinct HF CLIPEncoderLayers, each executed
+# once — same "depth=12" HiLoRA staging as vit_b16_control (cumulative
+# 5/8/12-block stages), with LoRA on self_attn.{q,k,v,out}_proj.
+name: "hivg_clip_vitb16_hf_baseline"
+
+backbone_source: "hf_clip_pretrained"
+hf_clip_pretrained_id: "openai/clip-vit-base-patch16"
+
+visual_embed_dim: 768
+num_heads: 12
+mlp_ratio: 4.0
+
+text_encoder: "hf_clip"
+text_encoder_name: "ViT-B-16"   # only used to pick the tokenizer (src/datasets/tokenizer.py);
+                                 # open_clip's CLIP BPE vocab is the same one HF's CLIP uses
+embed_dim: 512
+text_seq_len: 77
+
+backbone_checkpoint: null   # unused for this backbone_source; weights come from hf_clip_pretrained_id
+
+# ---- New grounding heads (trained from scratch) ----
+vl_hidden_dim: 512
+vl_nheads: 8
+vl_enc_layers: 6
+vl_dropout: 0.1
+num_patches: 196
+
+# ---- HiLoRA ----
+hilora_rank: 32
+hilora_alpha: 16.0
+
+hi_lora_stage: 3   # 0=warmup (no LoRA), 1/2/3=cumulative vision HiLoRA + flat text HiLoRA (see GroundingModule.setup)
+text_lora: true    # flat (non-staged) LoRA on every text layer, active when hi_lora_stage >= 1
