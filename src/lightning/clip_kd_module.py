@@ -208,6 +208,15 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
             for block in self.teacher.model.visual.transformer.resblocks:
                 block.register_forward_hook(self._teacher_act_hook)
 
+            # LoopViT students expose encode_image_with_intermediates() directly
+            # (per-iteration states). Plain ViT students (e.g. ViT-B/16 self-distill)
+            # have no such method — collect per-block activations the same way as
+            # the teacher, via forward hooks on their own transformer blocks.
+            if not hasattr(self.student.model, "encode_image_with_intermediates"):
+                self._s_intermediates: list[torch.Tensor] = []
+                for block in self.student.model.visual.transformer.resblocks:
+                    block.register_forward_hook(self._student_act_hook)
+
         # Register SigREG hooks on student visual blocks.
         if self._sigreg_active:
             blocks = find_visual_blocks(self.student.model.visual)
@@ -226,6 +235,15 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         """Collect full token sequences from each teacher transformer block."""
         # output: [B, N+1, hidden_dim] (batch-first NLC from open_clip Transformer)
         self._t_intermediates.append(output)
+
+    def _student_act_hook(
+        self,
+        module: nn.Module,
+        input: tuple,
+        output: torch.Tensor,
+    ) -> None:
+        """Collect full token sequences from each student visual block (plain-ViT AM path)."""
+        self._s_intermediates.append(output)
 
     def _s_sigreg_hook(
         self,
@@ -269,12 +287,23 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
         # distill=True sets normalize=False in encode_image/encode_text
         # Bug fix: when mask_ratio > 0, call mask_forward explicitly to
         # avoid the overwrite bug in the original encode_image (model.py L195).
-        # When activation matching is active we use encode_image_with_intermediates()
-        # to get per-iteration CLS states in a single visual forward pass.
+        # When activation matching is active, LoopViT students use
+        # encode_image_with_intermediates() to get per-iteration CLS states in a
+        # single visual forward pass. Plain ViT students have no such method —
+        # do a normal distill forward and pull per-block activations from the
+        # hooks registered on their transformer blocks in setup().
         if use_am and mask_ratio == 0.0:
-            s_img_raw, s_intermediates = self.student.model.encode_image_with_intermediates(images)
-            s_txt_raw = self.student.encode_text(texts, normalize=False)
-            s_logit_scale = self.student.logit_scale.exp()
+            if hasattr(self.student.model, "encode_image_with_intermediates"):
+                s_img_raw, s_intermediates = self.student.model.encode_image_with_intermediates(images)
+                s_txt_raw = self.student.encode_text(texts, normalize=False)
+                s_logit_scale = self.student.logit_scale.exp()
+            else:
+                self._s_intermediates.clear()
+                s_img_raw, s_txt_raw, s_logit_scale = self.student(
+                    images, texts, distill=True, mask_ratio=0.0
+                )
+                s_intermediates = list(self._s_intermediates)
+                self._s_intermediates.clear()
         elif mask_ratio > 0.0:
             s_img_raw = self.student.visual.mask_forward(images, mask_ratio)
             s_txt_raw = self.student.encode_text(texts, normalize=False)
