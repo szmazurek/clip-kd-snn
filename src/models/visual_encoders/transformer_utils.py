@@ -162,6 +162,15 @@ class TransformerBlock(nn.Module):
         x = x + self.mlp(self.norm2(x))
         return x
 
+    def self_attn_sublayer(self, x: torch.Tensor, is_causal: bool = False) -> torch.Tensor:
+        """The pre-norm self-attention sub-layer alone (no residual add), so
+        callers can splice something in between this and mlp_sublayer()."""
+        return self.attn(self.norm1(x), is_causal=is_causal)
+
+    def mlp_sublayer(self, x: torch.Tensor) -> torch.Tensor:
+        """The pre-norm MLP sub-layer alone (no residual add)."""
+        return self.mlp(self.norm2(x))
+
 
 class TransformerEncoder(nn.Module):
 

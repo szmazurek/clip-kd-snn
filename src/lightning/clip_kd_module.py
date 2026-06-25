@@ -365,10 +365,17 @@ class CLIPKDModule(ZeroShotEvalMixin, L.LightningModule):
             return None
 
         # ------ Log ------
-        self.log("train_total_loss", total_loss, on_step=True, on_epoch=True, sync_dist=True)
+        self.log(
+            "train_total_loss",
+            total_loss,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+            prog_bar=True,
+        )
         for name, val in loss_dict.items():
             if name != "total":
-                self.log(f"train_{name}_loss", val, on_step=True, on_epoch=False)
+                self.log(f"train_{name}_loss", val, on_step=True, on_epoch=False, prog_bar=True)
 
         return total_loss
 

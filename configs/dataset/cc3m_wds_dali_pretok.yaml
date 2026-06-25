@@ -1,0 +1,46 @@
+# CC3M WebDataset — DALI-accelerated pipeline with pre-tokenized .bin shards
+#
+# Use this instead of cc3m_wds_dali.yaml. cc3m_wds_dali.yaml's shard_pattern
+# points at this same pretokenized directory (jpg+bin, no .txt) but is read
+# by the "cc3m_wds_dali" type, whose DALI reader expects ext=["jpg", "txt"]
+# (see src/datasets/dali_wds.py's _clip_train_pipeline) -- every sample's
+# caption silently comes back empty (DALI's webdataset reader returns an
+# empty buffer for a missing extension rather than raising), so training
+# never gets a real text signal and loss stays flat. This config's type,
+# "cc3m_wds_dali_pretok", is read by build_dali_train_loader_pretok instead,
+# whose reader uses ext=["jpg", "bin"] (see _clip_train_pipeline_pretok) --
+# the pairing that actually matches what's on disk here.
+#
+# Prereq: shards must already be pre-tokenized via scripts/pretokenize_wds.py
+# (this repo's combined_wds_dali_pretok.yaml documents the exact command --
+# the same output directory is reused here, just for cc3m alone):
+#
+#   python scripts/pretokenize_wds.py \
+#       --pattern "<source cc3m tar pattern>" \
+#       --output-dir "${SCRATCH}/ccm_data/pretokenized/cc3m/" \
+#       --workers 32
+#
+# Shard layout (pixparse/cc3m-wds): cc3m-train-{0000..0575}.tar — 576 shards, 2,905,954 samples
+
+type: "cc3m_wds_dali_pretok"
+
+# Brace-expansion pattern understood by braceexpand (webdataset dependency).
+shard_pattern: "${oc.env:SCRATCH}/ccm_data/pretokenized/cc3m/cc3m-train-{0000..0575}.tar"
+
+# Total training samples. Used to compute per-rank epoch length so Lightning
+# reports correct steps-per-epoch and the LR scheduler steps correctly.
+num_samples: 2905954
+
+# Token sequence length — must match --context-length used in pretokenize_wds.py (default 77).
+context_length: 77
+
+# DALI reader shuffle buffer depth (number of samples prefetched for random
+# sampling). Larger values improve randomness but consume more host memory.
+shuffle_buffer: 5000
+
+seed: 42
+
+imagenet_wds_dir: "${oc.env:PLG_GROUPS_STORAGE}/plggwie/plgmazurekagh/imagenet-v1-wds-full/"
+imagenet_v2_wds_dir: "${oc.env:PLG_GROUPS_STORAGE}/plggwie/plgmazurekagh/imagenet-v2-wds/test"
+imagenet_r_wds_dir: "${oc.env:PLG_GROUPS_STORAGE}/plggwie/plgmazurekagh/imagenet-r-wds/test"
+imagenet_sketch_wds_dir: "${oc.env:PLG_GROUPS_STORAGE}/plggwie/plgmazurekagh/imagenet-sketch-wds-full/"

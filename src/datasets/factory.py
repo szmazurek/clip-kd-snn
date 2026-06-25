@@ -204,6 +204,24 @@ class CLIPDataModule(L.LightningDataModule):
                 seed=ds_cfg.get("seed", 42),
                 prefetch_queue_depth=self.cfg.training.get("prefetch_queue_depth", 2),
             )
+        elif dtype == "cc3m_wds_dali_pretok":
+            # DALI-accelerated CC3M WebDataset with pre-tokenized .bin shards.
+            # Run scripts/pretokenize_wds.py first to produce the .bin shards.
+            # Zero Python overhead in text pipeline — fn.reinterpret replaces fn.python_function.
+            self.train_dataset = build_dali_train_loader_pretok(
+                shard_pattern=ds_cfg.shard_pattern,
+                preprocess_train=self.preprocess_train,
+                num_samples=_wds_num_samples(ds_cfg.get("num_samples", CC3M_TRAIN_SAMPLES)),
+                shard_id=self.trainer.global_rank,
+                num_shards=self.trainer.world_size,
+                batch_size=self.cfg.training.batch_size,
+                num_threads=self.cfg.training.get("dali_threads", 4),
+                device_id=self.trainer.local_rank,
+                shuffle_buffer=ds_cfg.get("shuffle_buffer", 1000),
+                seed=ds_cfg.get("seed", 42),
+                context_length=ds_cfg.get("context_length", 77),
+                prefetch_queue_depth=self.cfg.training.get("prefetch_queue_depth", 2),
+            )
         elif dtype == "combined_wds_dali":
             # DALI-accelerated combined CC3M + CC12M WebDataset.
             # Shard lists from both patterns are merged and shuffled together.
